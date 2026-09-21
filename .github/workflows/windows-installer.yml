@@ -31,7 +31,7 @@ jobs:
         run: npm run verify
 
       - name: Build NSIS installer
-        run: npm run desktop:dist
+        run: npm run desktop:dist -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
@@ -64,4 +64,5 @@ jobs:
           } else {
             gh release upload $tag $installer.FullName --clobber
           }
+
 
