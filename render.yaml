@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: unstable-watch
+    runtime: node
+    plan: 0.5c-512mb
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: NODE_VERSION
+        value: 24.17.0
+      - key: DATA_DIR
+        value: /var/data
+      - key: POLL_INTERVAL_MS
+        value: 120000
+      - key: EVENT_SOURCE_CHANNEL_ID
+        value: 1382502803058196612
+      - key: DISCORD_INVITE
+        value: https://discord.gg/unstableevents
+      - key: DISCORD_MESSAGE_CONTENT_INTENT
+        value: "false"
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+    disk:
+      name: unstable-watch-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#08080d" />
+  <meta name="description" content="Watch Unstable SMP perspectives in one cinematic hub and get instant upload + event notifications." />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <title>UNSTABLE // Watch Hub</title>
+</head>
+<body>
+  <div class="desktop-titlebar hidden" id="desktopTitlebar">
+    <div class="desktop-drag-region">
+      <div class="desktop-appmark"><span>U</span><strong>UNSTABLE WATCH</strong><em>DESKTOP</em></div>
+      <div class="desktop-runtime" id="desktopRuntime"><i></i><span>Starting local services…</span></div>
+    </div>
+    <div class="desktop-window-actions">
+      <button id="desktopSettingsBtn" aria-label="Desktop settings" title="Desktop settings">⚙</button>
+      <button id="windowMinimize" aria-label="Minimize">—</button>
+      <button id="windowMaximize" aria-label="Maximize">□</button>
+      <button class="window-close" id="windowClose" aria-label="Close to tray">×</button>
+    </div>
+  </div>
+  <div class="noise" aria-hidden="true"></div>
+  <div class="scroll-progress" id="scrollProgress" aria-hidden="true"></div>
+
+  <header class="topbar" id="topbar">
+    <a class="brand" href="#home" aria-label="Unstable Watch home">
+      <span class="brand-mark">U</span>
+      <span class="brand-copy"><strong>UNSTABLE</strong><small>WATCH</small></span>
+    </a>
+    <nav class="navlinks" aria-label="Primary navigation">
+      <a href="#latest">Home</a>
+      <a href="#arcs">Arcs</a>
+      <a href="#library">Browse</a>
+      <a href="#events">Events</a>
+    </nav>
+    <div class="nav-actions">
+      <button class="icon-btn" id="searchBtn" aria-label="Search videos"><span>⌕</span></button>
+      <span class="desktop-key-hint hidden" id="desktopKeyHint">Ctrl K</span>
+      <button class="btn btn-ghost compact" id="notifyBtn"><span class="pulse-dot"></span><span>Notifications</span></button>
+      <a class="btn btn-discord compact" id="joinDiscord" target="_blank" rel="noopener noreferrer">Discord</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="home">
+      <div class="hero-backdrop" id="heroBackdrop"></div>
+      <div class="hero-vignette"></div>
+      <div class="hero-orb hero-orb-a" aria-hidden="true"></div>
+      <div class="hero-orb hero-orb-b" aria-hidden="true"></div>
+      <div class="hero-content reveal">
+        <div class="eyebrow"><span class="live-dot"></span> UNSTABLE SMP · ALL POVS</div>
+        <h1 id="heroTitle">Every side of<br><em>Unstable.</em></h1>
+        <p id="heroDescription">Every Unstable SMP perspective in one clean watch experience. No Shorts. No unrelated uploads. Just the story.</p>
+        <div class="hero-meta" id="heroMeta"><span>UNSTABLE SMP</span><i></i><span>4 creators</span><i></i><span>Live feed</span></div>
+        <div class="hero-actions">
+          <button class="btn btn-primary" id="heroPlay"><span class="play-triangle"></span> Play latest</button>
+          <button class="btn btn-glass" id="heroMyList">＋ My list</button>
+          <button class="btn btn-glass" id="addBot">Add Discord bot</button>
+        </div>
+        <div class="status-line"><span id="systemDot" class="status-dot"></span><span id="systemStatus">Loading library…</span></div>
+      </div>
+      <div class="hero-scroll">EXPLORE <span>↓</span></div>
+    </section>
+
+    <section class="content-shell stats-strip" aria-label="Library stats">
+      <div><strong id="statVideos">—</strong><span>videos indexed</span></div>
+      <div><strong id="statCreators">4</strong><span>perspectives</span></div>
+      <div><strong id="statEvents">0</strong><span>recent events</span></div>
+      <div><strong id="statUpdated">Live</strong><span>feed status</span></div>
+    </section>
+
+    <section class="content-shell" id="latest">
+      <div class="section-heading">
+        <div><span class="kicker">NOW STREAMING</span><h2>Latest uploads</h2></div>
+        <div class="rail-buttons"><button data-rail="latestRail" data-dir="-1" aria-label="Previous videos">‹</button><button data-rail="latestRail" data-dir="1" aria-label="Next videos">›</button></div>
+      </div>
+      <div class="video-rail skeleton-rail" id="latestRail"></div>
+    </section>
+
+    <section class="content-shell continuation hidden" id="continueSection">
+      <div class="section-heading"><div><span class="kicker">PICK UP WHERE YOU LEFT OFF</span><h2>Continue watching</h2></div></div>
+      <div class="video-rail" id="continueRail"></div>
+    </section>
+
+    <section class="content-shell continuation hidden" id="myListSection">
+      <div class="section-heading"><div><span class="kicker">SAVED LOCALLY</span><h2>My list</h2></div></div>
+      <div class="video-rail" id="myListRail"></div>
+    </section>
+
+
+    <section class="content-shell story-order-section" id="watch-order">
+      <div class="section-heading">
+        <div><span class="kicker">START AT THE BEGINNING</span><h2>All videos in upload order</h2></div>
+        <button class="btn btn-primary compact" id="playAllStart">▶ Play from episode 1</button>
+      </div>
+      <div class="story-order-card">
+        <div class="story-order-copy">
+          <span class="story-order-number" id="storyOrderCount">—</span>
+          <div><strong>One continuous queue</strong><p>Every indexed protagonist upload, oldest to newest. Next/previous inside the player follows this exact order.</p></div>
+        </div>
+        <div class="video-rail story-rail" id="storyRail"></div>
+      </div>
+    </section>
+
+    <section class="content-shell creators-section" id="creators">
+      <div class="section-heading"><div><span class="kicker">THE PROTAGONISTS</span><h2>Choose a perspective</h2></div></div>
+      <div class="creator-grid" id="creatorGrid"></div>
+    </section>
+
+
+    <section class="content-shell arcs-section" id="arcs">
+      <div class="section-heading">
+        <div><span class="kicker">STORY FOLDERS</span><h2>Browse by arc</h2></div>
+        <span class="arc-sync-note" id="arcSyncNote">Building folders from creator playlists…</span>
+      </div>
+      <div class="arc-folder-grid" id="arcFolderGrid"></div>
+      <div class="library-empty hidden" id="arcEmpty">Arc playlists will appear here after the YouTube sync finishes.</div>
+    </section>
+
+    <section class="content-shell library-section" id="library">
+      <div class="section-heading library-heading">
+        <div><span class="kicker">THE ARCHIVE</span><h2>Watch the whole library</h2></div>
+        <div class="library-count" id="libraryCount">Loading…</div>
+      </div>
+      <div class="filter-bar" id="filterBar">
+        <button class="filter-chip active" data-creator="all">All perspectives</button>
+      </div>
+      <div class="library-grid" id="libraryGrid"></div>
+      <div class="library-empty hidden" id="libraryEmpty">No videos match this filter.</div>
+      <button class="btn btn-glass load-more" id="loadMore">Load more</button>
+    </section>
+
+    <section class="content-shell events-section" id="events">
+      <div class="events-panel">
+        <div class="events-copy">
+          <span class="kicker">LIVE EVENT RELAY</span>
+          <h2>Never miss the next event.</h2>
+          <p>Announcements from the configured Unstable Events channel can be relayed straight to your Discord server and pushed to this device.</p>
+          <div class="event-actions">
+            <button class="btn btn-primary" id="eventNotifyBtn">Choose event alerts</button>
+            <a class="btn btn-glass" id="eventDiscord" target="_blank" rel="noopener noreferrer">Join events Discord</a>
+          </div>
+        </div>
+        <div class="event-feed-wrap">
+          <div class="event-feed-head"><span>EVENT FEED</span><span class="live-badge"><i></i>LIVE</span></div>
+          <div class="event-feed" id="eventFeed"><div class="empty-event">Waiting for events from Discord…</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="content-shell bot-section">
+      <div class="bot-card">
+        <div class="bot-orb"><div class="orb-core">U</div><div class="orb-ring"></div></div>
+        <div class="bot-copy"><span class="kicker">UNSTABLE WATCH BOT</span><h2>Your server. Your alerts.</h2><p>Pick separate channels for uploads and events, choose creators, optionally ping a role, and test everything without leaving Discord.</p></div>
+        <div class="command-list">
+          <code>/setup</code><span>Set upload + event channels</span>
+          <code>/creator</code><span>Toggle a protagonist</span>
+          <code>/mention</code><span>Choose an optional ping role</span>
+          <code>/notifications</code><span>Turn alerts on or off</span>
+          <code>/testnotify</code><span>Test your destination</span>
+          <code>/status</code><span>See current settings</span>
+        </div>
+        <button class="btn btn-discord" id="botCta">Add Discord bot</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="brand muted"><span class="brand-mark">U</span><span class="brand-copy"><strong>UNSTABLE</strong><small>WATCH</small></span></div>
+    <p>Fan-made viewer hub. Videos are played through YouTube’s official embedded player.</p>
+  </footer>
+
+  <div class="search-overlay" id="searchOverlay" aria-hidden="true" role="dialog" aria-label="Search videos">
+    <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="Search videos or creators…" autocomplete="off" /><button id="searchClose" aria-label="Close search">×</button></div>
+    <div class="search-hint">Press <kbd>/</kbd> anywhere to search · <kbd>Esc</kbd> to close</div>
+    <div class="search-results" id="searchResults"></div>
+  </div>
+
+  <div class="settings-overlay" id="notifyOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="notifyTitle">
+    <div class="settings-card">
+      <button class="settings-close" id="notifyClose" aria-label="Close notification settings">×</button>
+      <span class="kicker">DEVICE ALERTS</span>
+      <h2 id="notifyTitle">Choose what reaches you.</h2>
+      <p>These settings are for this browser only. Discord server alerts are configured separately with the bot.</p>
+      <div class="toggle-row"><div><strong>Creator uploads</strong><span>Notify when selected protagonists upload.</span></div><label class="switch"><input id="prefUploads" type="checkbox" checked><span></span></label></div>
+      <div class="creator-pref-grid" id="creatorPrefGrid"></div>
+      <div class="toggle-row"><div><strong>Unstable events</strong><span>Notify when the configured event channel posts.</span></div><label class="switch"><input id="prefEvents" type="checkbox" checked><span></span></label></div>
+      <div class="settings-actions">
+        <button class="btn btn-primary" id="saveNotifyPrefs">Enable + save alerts</button>
+        <button class="btn btn-ghost hidden" id="disableNotifyPrefs">Disable on this device</button>
+      </div>
+      <small class="settings-note" id="notifyStatus">Your browser will ask for permission when you enable alerts.</small>
+    </div>
+  </div>
+
+  <div class="arc-overlay" id="arcOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="arcModalTitle">
+    <div class="arc-modal">
+      <div class="arc-modal-head">
+        <div><span class="kicker">ARC FOLDER</span><h2 id="arcModalTitle">Arc</h2><p id="arcModalMeta"></p></div>
+        <button class="settings-close" id="arcClose" aria-label="Close arc folder">×</button>
+      </div>
+      <div class="arc-modal-actions"><button class="btn btn-primary" id="playArcStart">▶ Play this arc</button></div>
+      <div class="arc-video-grid" id="arcVideoGrid"></div>
+    </div>
+  </div>
+
+  <div class="player-modal" id="playerModal" aria-hidden="true" role="dialog" aria-label="Video player">
+    <div class="player-shell" id="playerShell">
+      <div class="player-main" id="playerMain">
+        <div class="player-screen">
+          <div id="ytPlayer"></div>
+          <div class="player-error hidden" id="playerError"><strong id="playerErrorTitle">This video can’t be embedded.</strong><p id="playerErrorText">Open it on YouTube to continue watching.</p><a class="btn btn-primary" id="playerErrorLink" target="_blank" rel="noopener noreferrer">Watch on YouTube</a></div>
+
+          <div class="player-vignette player-vignette-top" aria-hidden="true"></div>
+          <div class="player-vignette player-vignette-bottom" aria-hidden="true"></div>
+
+          <div class="player-chrome-top">
+            <button class="netflix-circle" id="playerBack" aria-label="Close player">←</button>
+            <div class="player-heading"><strong id="playerTitle">Loading…</strong><small id="playerCreator"></small></div>
+            <div class="player-top-actions">
+              <button class="netflix-text-btn" id="playerListBtn">＋ My list</button>
+              <a class="netflix-text-btn" id="youtubeFallback" target="_blank" rel="noopener noreferrer">YouTube ↗</a>
+            </div>
+          </div>
+
+          <div class="player-click-zone" id="playerClickZone" aria-hidden="true"></div>
+
+          <div class="netflix-controls" id="mediaControls">
+            <div class="player-now-row">
+              <div class="player-now-copy">
+                <span id="playerPosition">—</span>
+                <div><strong id="playerDockTitle">Watching Unstable</strong><small id="playerNextTitle">Full story playback</small></div>
+              </div>
+            </div>
+            <div class="media-timeline" id="timeline" aria-label="Seek video" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div class="media-buffer" id="timelineBuffer"></div>
+              <div class="media-progress" id="timelineProgress"></div>
+              <div class="media-thumb" id="timelineThumb"></div>
+            </div>
+            <div class="media-control-row">
+              <button class="netflix-control primary-control" id="playPause" aria-label="Play or pause">▶</button>
+              <button class="netflix-control" id="rewindBtn" aria-label="Rewind 10 seconds">↶10</button>
+              <button class="netflix-control" id="forwardBtn" aria-label="Forward 10 seconds">↷10</button>
+              <button class="netflix-control" id="volumeBtn" aria-label="Mute or unmute">🔊</button>
+              <input class="media-volume" id="volumeRange" aria-label="Volume" type="range" min="0" max="100" value="80">
+              <span class="media-timecode" id="timecode">0:00 / 0:00</span>
+              <div class="media-spacer"></div>
+              <button class="netflix-control nav-control" id="prevBtn" aria-label="Previous video">⏮</button>
+              <button class="netflix-control nav-control" id="nextBtn" aria-label="Next video">⏭</button>
+              <button class="netflix-chip cc-pill is-off" id="ccBtn" aria-pressed="false" title="Toggle captions (C)">CC</button>
+              <button class="netflix-chip" id="speedBtn" aria-label="Playback speed">1×</button>
+              <button class="netflix-control" id="fullscreenBtn" aria-label="Toggle fullscreen">⛶</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-overlay desktop-settings-overlay" id="desktopSettingsOverlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="desktopSettingsTitle">
+    <div class="settings-card desktop-settings-card">
+      <button class="settings-close" id="desktopSettingsClose" aria-label="Close desktop settings">×</button>
+      <span class="kicker">WINDOWS APP</span>
+      <h2 id="desktopSettingsTitle">Desktop settings</h2>
+      <p>Configure optional power-user features. Watching works without a YouTube API key; Unstable Watch uses YouTube’s public upload feeds automatically. Secret values stay in your Windows app-data folder and are never shown back after saving.</p>
+
+      <div class="desktop-setting-grid">
+        <label class="desktop-field"><span>Discord bot token <b id="desktopTokenState">Not configured</b></span><input id="desktopDiscordToken" type="password" autocomplete="off" placeholder="Paste a new token to replace the saved one"></label>
+        <label class="desktop-field"><span>Discord application / client ID <b id="desktopClientState">Not configured</b></span><input id="desktopClientId" autocomplete="off" placeholder="Application ID"></label>
+        <label class="desktop-field"><span>YouTube Data API key · optional <b id="desktopYoutubeState">Public feed mode</b></span><input id="desktopYoutubeKey" type="password" autocomplete="off" placeholder="Optional: enables deeper archive + arc discovery"></label>
+        <label class="desktop-field"><span>Event source channel</span><input id="desktopEventChannel" autocomplete="off" inputmode="numeric" placeholder="1382502803058196612"></label>
+        <label class="desktop-field desktop-field-wide"><span>Events Discord invite</span><input id="desktopDiscordInvite" autocomplete="off" placeholder="https://discord.gg/unstableevents"></label>
+        <label class="desktop-field"><span>YouTube poll interval (seconds)</span><input id="desktopPollSeconds" type="number" min="60" max="3600" value="120"></label>
+      </div>
+
+      <div class="toggle-row desktop-toggle-row"><div><strong>Message Content intent</strong><span>Only enable this after enabling it in the Discord Developer Portal.</span></div><label class="switch"><input id="desktopMessageContent" type="checkbox"><span></span></label></div>
+      <div class="toggle-row desktop-toggle-row"><div><strong>Start with Windows</strong><span>Launch minimized to the tray when you sign in so the bot stays running while the PC is on.</span></div><label class="switch"><input id="desktopLaunchAtLogin" type="checkbox"><span></span></label></div>
+
+      <div class="desktop-path-row"><span>App data</span><code id="desktopDataPath">—</code><button class="btn btn-ghost compact" id="desktopOpenData">Open folder</button></div>
+      <div class="settings-actions">
+        <button class="btn btn-primary" id="desktopSaveSettings">Save & restart app</button>
+        <button class="btn btn-ghost" id="desktopRestart">Restart</button>
+      </div>
+      <small class="settings-note" id="desktopSettingsStatus">Closing the main window keeps the app running in the system tray.</small>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

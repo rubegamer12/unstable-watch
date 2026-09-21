@@ -1,0 +1,38 @@
+{
+  "name": "Unstable Watch",
+  "short_name": "Unstable",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07070b",
+  "theme_color": "#07070b",
+  "description": "Desktop-first Unstable SMP watch hub with upload and event alerts.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": [
+    "entertainment",
+    "video"
+  ],
+  "shortcuts": [
+    {
+      "name": "Latest uploads",
+      "short_name": "Latest",
+      "url": "/#latest"
+    },
+    {
+      "name": "Story arcs",
+      "short_name": "Arcs",
+      "url": "/#arcs"
+    },
+    {
+      "name": "Events",
+      "short_name": "Events",
+      "url": "/#events"
+    }
+  ]
+}

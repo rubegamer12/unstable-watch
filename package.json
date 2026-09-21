@@ -1,0 +1,83 @@
+{
+  "name": "unstable-watch-hub",
+  "version": "4.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Unstable SMP desktop-first watch hub + Discord upload/event notification bot",
+  "scripts": {
+    "dev": "node --watch src/server.mjs",
+    "start": "node src/server.mjs",
+    "desktop": "electron .",
+    "desktop:dev": "electron .",
+    "desktop:pack": "electron-builder --dir",
+    "desktop:dist": "electron-builder --win nsis:x64",
+    "desktop:portable": "electron-builder --win portable:x64",
+    "check": "node --check src/server.mjs && node --check src/discord-bot.mjs && node --check src/youtube.mjs && node --check src/youtube-public-feed.mjs && node --check src/arcs.mjs && node --check src/video-diff.mjs && node --check src/video-filter.mjs && node --check public/app.js && node --check public/sw.js && node --check desktop/main.mjs && node --check desktop/preload.cjs",
+    "test": "node --test test/*.test.mjs",
+    "verify": "npm run check && npm test"
+  },
+  "engines": {
+    "node": ">=24.17.0"
+  },
+  "dependencies": {
+    "compression": "1.8.1",
+    "discord.js": "14.27.0",
+    "dotenv": "17.2.2",
+    "express": "5.1.0",
+    "helmet": "8.1.0",
+    "web-push": "3.6.7"
+  },
+  "main": "desktop/main.mjs",
+  "devDependencies": {
+    "electron": "44.4.3",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.unstable.watch",
+    "productName": "Unstable Watch",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "public/**/*",
+      "src/**/*",
+      "desktop/**/*",
+      "build/icon.png",
+      "package.json",
+      "!**/*.test.mjs",
+      "!test/**/*",
+      "!.env",
+      "!.env.*",
+      "!data/**/*",
+      "!dist/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Unstable-Watch-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Unstable Watch",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "Unstable-Watch-Portable-${version}.${ext}"
+    }
+  }
+}
+
