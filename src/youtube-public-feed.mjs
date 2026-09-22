@@ -73,18 +73,31 @@ export function extractChannelId(html = '', expectedHandle = '') {
     const id = /\bcontent=["'](UC[0-9A-Za-z_-]{22})["']/i.exec(tag)?.[1];
     if (id) return id;
   }
-  return null;
+  // Last resort only: ambiguous pages must not select the first recommendation.
+  const ids = [...new Set([...text.matchAll(/"channelId"\s*:\s*"(UC[0-9A-Za-z_-]{22})"/g)].map(match => match[1]))];
+  return !expectedHandle && ids.length === 1 ? ids[0] : null;
+}
+
+export function normalizeChannelId(value = '') {
+  if (/^UC[\w-]{22}$/.test(value)) return value;
+  // YouTube's Atom feed header currently omits the UC prefix.
+  return /^[\w-]{22}$/.test(value) ? `UC${value}` : null;
 }
 
 export function parseYouTubeAtomFeed(xml = '', creator = {}) {
   const header = String(xml).split(/<entry\b/i)[0];
-  const feedChannelId = tagText(header, 'yt:channelId');
+  const feedChannelId = normalizeChannelId(tagText(header, 'yt:channelId'));
   if (creator.channelId && feedChannelId !== creator.channelId) throw new Error('Public feed channel does not match the requested creator');
+  const author = tagText(header, 'author');
+  const authorId = /\/channel\/(UC[\w-]{22})/.exec(tagText(author, 'uri'))?.[1];
+  if (authorId && authorId !== feedChannelId) throw new Error('Public feed author identity mismatch');
+  const authorName = tagText(author, 'name');
+  if (creator.name && authorName && authorName.toLowerCase() !== creator.name.toLowerCase()) throw new Error('Public feed author does not match the requested creator');
   const entries = String(xml).match(/<entry\b[\s\S]*?<\/entry>/gi) || [];
   return entries.map(entry => {
     const id = tagText(entry, 'yt:videoId');
     if (!id) return null;
-    const channelId = tagText(entry, 'yt:channelId');
+    const channelId = normalizeChannelId(tagText(entry, 'yt:channelId'));
     if (creator.channelId && channelId !== creator.channelId) return null;
     const title = tagText(entry, 'title') || 'Untitled upload';
     const description = tagText(entry, 'media:description');

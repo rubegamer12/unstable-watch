@@ -8,7 +8,7 @@ test('recommended Parrot videos never resolve as the Spoke page owner', () => {
  const html = JSON.stringify({ recommendations: [{channelId:parrot}], metadata: {channelMetadataRenderer: {title:'Spoke',externalId:spoke,vanityChannelUrl:'https://www.youtube.com/@Spokeishere'}} });
  assert.equal(extractChannelId(html, 'Spokeishere'), spoke);
  assert.equal(extractChannelId(html, 'ParrotX2'), null);
- assert.equal(extractChannelId(JSON.stringify({channelId:parrot})), null);
+ assert.equal(extractChannelId(JSON.stringify({channelId:parrot}), 'Spokeishere'), null);
  assert.equal(extractChannelId('<meta content="'+spoke+'" itemprop="channelId">'), spoke);
 });
 

@@ -24,6 +24,7 @@ export const creators = [
     id: 'spoke',
     name: 'Spoke',
     handle: 'Spokeishere',
+    channelId: 'UCk2uxbWi5py_iJXaEsh2YRA',
     tagline: 'Schemes, heists and empire politics.',
     accent: '#ff345f'
   },
@@ -31,6 +32,7 @@ export const creators = [
     id: 'parrot',
     name: 'Parrot',
     handle: 'ParrotX2',
+    channelId: 'UCPLMPHT-d8GZOqL_AHJFdQQ',
     tagline: 'Kingdoms, strategy and impossible plans.',
     accent: '#ffb52f'
   },
@@ -38,6 +40,7 @@ export const creators = [
     id: 'wemmbu',
     name: 'Wemmbu',
     handle: 'wemmbumc',
+    channelId: 'UCkzzNLnuM-VsATWC53ehwOQ',
     tagline: 'One-player wars and chaotic comebacks.',
     accent: '#39d98a'
   },
@@ -45,6 +48,7 @@ export const creators = [
     id: 'flame',
     name: 'FlameFrags',
     handle: 'FlameFragsMC',
+    channelId: 'UCvYPobTo42NM36X7VC4dLhA',
     tagline: 'High-pressure PvP and survival.',
     accent: '#8b5cff'
   }

@@ -86,8 +86,7 @@ export class YouTubeService {
 
     if (!config.youtubeApiKey) {
       const channelUrl = `https://www.youtube.com/@${creator.handle}`;
-      const html = await fetchText(channelUrl, `YouTube handle @${creator.handle}`);
-      const channelId = extractChannelId(html, creator.handle);
+      const channelId = creator.channelId || extractChannelId(await fetchText(channelUrl, `YouTube handle @${creator.handle}`), creator.handle);
       if (!channelId) {
         throw new Error(`Could not resolve public channel ID for @${creator.handle}. Add an optional YOUTUBE_API_KEY for the full archive if YouTube blocks the public feed.`);
       }
@@ -109,6 +108,7 @@ export class YouTubeService {
       forHandle: creator.handle
     });
     const channel = data.items?.[0];
+    if (channel && creator.channelId && channel.id !== creator.channelId) throw new Error('YouTube channel identity mismatch');
     if (!channel) throw new Error(`Could not resolve YouTube handle @${creator.handle}`);
     const resolved = {
       ...creator,
@@ -281,7 +281,7 @@ export class YouTubeService {
             .map(playlist => ({ ...playlist, videoIds: (playlist.videoIds || []).filter(id => allowedIds.has(id)) }))
             .filter(playlist => playlist.videoIds.length);
 
-          if (full) {
+          if (full && config.youtubeApiKey) {
             this.store.setLatestVideos(creator.id, videos);
             this.store.setArcPlaylists(creator.id, arcPlaylists);
           } else if (videos.length) {
@@ -323,7 +323,7 @@ export class YouTubeService {
 
   getFeed() {
     return creators.map(creator => {
-      const resolved = this.resolved.get(creator.id);
+      const resolved = this.resolved.get(creator.id) || creator;
       return {
         ...creator,
         channelId: resolved?.channelId || null,
