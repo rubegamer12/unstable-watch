@@ -1,4 +1,4 @@
-const CACHE = 'unstable-watch-v4-1-1';
+const CACHE = 'unstable-watch-v4-2-0';
 const SHELL = ['/', '/styles.css', '/app.js', '/favicon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', event => {

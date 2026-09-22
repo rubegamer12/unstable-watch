@@ -169,6 +169,7 @@
           <code>/mention</code><span>Choose an optional ping role</span>
           <code>/notifications</code><span>Turn alerts on or off</span>
           <code>/testnotify</code><span>Test your destination</span>
+          <code>/setsource</code><span>Choose a local event relay</span>
           <code>/status</code><span>See current settings</span>
         </div>
         <button class="btn btn-discord" id="botCta">Add Discord bot</button>
@@ -237,6 +238,7 @@
           <div class="player-click-zone" id="playerClickZone" aria-hidden="true"></div>
 
           <div class="netflix-controls" id="mediaControls">
+            <div class="pause-status" id="pauseStatus" aria-live="polite"><span>PAUSED</span><button id="pauseResume" class="btn btn-primary">▶ Resume watching</button></div>
             <div class="player-now-row">
               <div class="player-now-copy">
                 <span id="playerPosition">—</span>
@@ -275,11 +277,12 @@
       <h2 id="desktopSettingsTitle">Desktop settings</h2>
       <p>Configure optional power-user features. Watching works without a YouTube API key; Unstable Watch uses YouTube’s public upload feeds automatically. Secret values stay in your Windows app-data folder and are never shown back after saving.</p>
 
+      <section class="update-card" aria-label="Windows updates"><span class="kicker">UNSTABLE WATCH</span><p id="installedVersion"></p><strong id="updateStatus" role="status">Checking update support…</strong><progress id="updateProgress" max="100" value="0" hidden></progress><div class="settings-actions"><button id="checkUpdates" class="btn btn-ghost">Check for updates</button><button id="restartUpdate" class="btn btn-primary" hidden>Restart & update</button><button id="laterUpdate" class="btn btn-ghost" hidden>Later</button></div><small id="updateNote">Updates install only when you choose Restart & update.</small></section>
       <div class="desktop-setting-grid">
         <label class="desktop-field"><span>Discord bot token <b id="desktopTokenState">Not configured</b></span><input id="desktopDiscordToken" type="password" autocomplete="off" placeholder="Paste a new token to replace the saved one"></label>
         <label class="desktop-field"><span>Discord application / client ID <b id="desktopClientState">Not configured</b></span><input id="desktopClientId" autocomplete="off" placeholder="Application ID"></label>
         <label class="desktop-field"><span>YouTube Data API key · optional <b id="desktopYoutubeState">Public feed mode</b></span><input id="desktopYoutubeKey" type="password" autocomplete="off" placeholder="Optional: enables deeper archive + arc discovery"></label>
-        <label class="desktop-field"><span>Event source channel</span><input id="desktopEventChannel" autocomplete="off" inputmode="numeric" placeholder="1382502803058196612"></label>
+        <label class="desktop-field"><span>Discord bot mode</span><select id="desktopBotMode"><option value="cloud">Cloud / hosted bot (recommended)</option><option value="local">Run bot on this PC</option><option value="disabled">Disabled</option></select><small>Cloud hosting runs independently. Configure the event relay with /setsource in your own server.</small></label>
         <label class="desktop-field desktop-field-wide"><span>Events Discord invite</span><input id="desktopDiscordInvite" autocomplete="off" placeholder="https://discord.gg/unstableevents"></label>
         <label class="desktop-field"><span>YouTube poll interval (seconds)</span><input id="desktopPollSeconds" type="number" min="60" max="3600" value="120"></label>
       </div>

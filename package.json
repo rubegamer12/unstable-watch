@@ -1,6 +1,6 @@
 {
   "name": "unstable-watch-hub",
-  "version": "4.1.1",
+  "version": "4.2.0",
   "private": true,
   "type": "module",
   "description": "Unstable SMP desktop-first watch hub + Discord upload/event notification bot",
@@ -12,7 +12,7 @@
     "desktop:pack": "electron-builder --dir",
     "desktop:dist": "electron-builder --win nsis:x64",
     "desktop:portable": "electron-builder --win portable:x64",
-    "check": "node --check src/server.mjs && node --check src/discord-bot.mjs && node --check src/youtube.mjs && node --check src/youtube-public-feed.mjs && node --check src/arcs.mjs && node --check src/video-diff.mjs && node --check src/video-filter.mjs && node --check public/app.js && node --check public/sw.js && node --check desktop/main.mjs && node --check desktop/preload.cjs",
+    "check": "node --check src/server.mjs && node --check src/discord-bot.mjs && node --check src/youtube.mjs && node --check src/youtube-public-feed.mjs && node --check src/arcs.mjs && node --check src/video-diff.mjs && node --check src/video-filter.mjs && node --check public/app.js && node --check public/sw.js && node --check desktop/main.mjs && node --check desktop/preload.cjs && node --check src/events.mjs && node --check src/safe-error.mjs && node --check desktop/updater.mjs",
     "test": "node --test test/*.test.mjs",
     "verify": "npm run check && npm test"
   },
@@ -23,14 +23,18 @@
     "compression": "1.8.1",
     "discord.js": "14.27.0",
     "dotenv": "17.2.2",
+    "electron-updater": "6.8.9",
     "express": "5.1.0",
     "helmet": "8.1.0",
+    "semver": "7.8.5",
     "web-push": "3.6.7"
   },
   "main": "desktop/main.mjs",
   "devDependencies": {
     "electron": "44.4.3",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "happy-dom": "20.14.5",
+    "yaml": "2.9.1"
   },
   "build": {
     "appId": "com.unstable.watch",
@@ -77,6 +81,11 @@
     },
     "portable": {
       "artifactName": "Unstable-Watch-Portable-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "rubegamer12",
+      "repo": "unstable-watch"
     }
   }
 }

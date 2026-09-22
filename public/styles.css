@@ -617,3 +617,34 @@ body.desktop-app.player-active .topbar{opacity:0;pointer-events:none}
 .creator-section .video-rail{padding-bottom:18px}
 
 #creatorSections{scroll-margin-top:125px}
+
+/* Desktop scroll surfaces. Rails keep their existing hidden horizontal bars. */
+html { scrollbar-gutter:stable; scrollbar-width:thin; scrollbar-color:#44444e #0b0b10; color-scheme:dark; }
+html::-webkit-scrollbar,.settings-card::-webkit-scrollbar,.search-overlay::-webkit-scrollbar,.arc-overlay::-webkit-scrollbar,.event-feed::-webkit-scrollbar { width:9px; }
+html::-webkit-scrollbar-track,.settings-card::-webkit-scrollbar-track,.search-overlay::-webkit-scrollbar-track,.arc-overlay::-webkit-scrollbar-track,.event-feed::-webkit-scrollbar-track { background:#0b0b10; }
+html::-webkit-scrollbar-thumb,.settings-card::-webkit-scrollbar-thumb,.search-overlay::-webkit-scrollbar-thumb,.arc-overlay::-webkit-scrollbar-thumb,.event-feed::-webkit-scrollbar-thumb { background:#44444e;border:2px solid #0b0b10;border-radius:12px; }
+html::-webkit-scrollbar-thumb:hover,.settings-card::-webkit-scrollbar-thumb:hover,.search-overlay::-webkit-scrollbar-thumb:hover,.arc-overlay::-webkit-scrollbar-thumb:hover,.event-feed::-webkit-scrollbar-thumb:hover { background:#696975; }
+::-webkit-scrollbar-button { display:none;width:0;height:0; }
+.settings-card,.search-overlay,.arc-overlay,.event-feed { scrollbar-width:thin;scrollbar-color:#44444e #0b0b10;overscroll-behavior:contain; }
+html:has(.player-modal.open,.settings-overlay.open,.search-overlay.open,.arc-overlay.open) { overflow:hidden; }
+.search-overlay { overflow-y:auto; }
+.update-card { border:1px solid #30303a;border-radius:10px;padding:20px;margin:20px 0;background:#0b0b11; }
+.update-card progress { width:100%;height:5px;margin-top:16px;accent-color:#ff345f; }
+.update-card small,.desktop-field small { color:#aaaab5;font-size:11px;line-height:1.6;display:block;margin-top:10px; }
+.desktop-field select { width:100%;padding:12px;background:#09090d;border:1px solid #30303a;border-radius:6px;color:#eee; }
+[hidden] { display:none!important; }
+
+/* Keep application controls in cinematic bands outside the YouTube viewport.
+   YouTube branding and its native pause content are never masked or cropped. */
+.player-screen { background:radial-gradient(ellipse at bottom,#16131d,#050507 65%)!important; }
+.player-screen #ytPlayer,.player-screen #ytPlayer iframe { inset:80px 0 198px!important;height:calc(100% - 278px)!important; }
+.player-chrome-top { height:80px!important;padding:18px 32px!important; }
+.netflix-controls { height:198px;box-sizing:border-box;padding:18px 32px 20px!important;background:linear-gradient(#111018,#070709)!important; }
+.player-vignette,.player-click-zone,.player-screen::after { display:none!important; }
+.pause-status { display:flex;align-items:center;justify-content:space-between;min-height:44px;margin-bottom:10px; }
+.pause-status>span { color:#b5b0bd;font-size:10px;letter-spacing:.2em; }
+.pause-status .btn { min-height:38px;padding:9px 20px; }
+.player-modal.is-paused .primary-control { background:#fff;color:#111; }
+.player-modal:not(.is-paused) .pause-status { display:none; }
+.player-modal:not(.is-paused) .netflix-controls { padding-top:50px!important; }
+@media(prefers-reduced-motion:reduce) { .player-chrome-top,.netflix-controls { transition:none!important; } }

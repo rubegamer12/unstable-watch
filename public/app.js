@@ -727,10 +727,13 @@ function showPlayerChrome({ pin = false } = {}) {
   modal.classList.add('controls-visible');
   clearTimeout(state.idleTimer);
   if (pin || state.player?.getPlayerState?.() !== window.YT?.PlayerState?.PLAYING) return;
-  state.idleTimer = setTimeout(() => modal.classList.remove('controls-visible'), 2600);
+  state.idleTimer = setTimeout(() => {
+    if(state.player?.getPlayerState?.() === window.YT?.PlayerState?.PLAYING && !(modal.contains(document.activeElement) && document.activeElement.matches(':focus-visible'))) modal.classList.remove('controls-visible');
+  }, 2600);
 }
 
 function updatePlayButton(playing) {
+  $('#pauseStatus').hidden = playing;
   $('#playPause').textContent = playing ? '❚❚' : '▶';
   $('#playPause').setAttribute('aria-label', playing ? 'Pause' : 'Play');
   $('#playerModal').classList.toggle('is-paused', !playing);
@@ -864,9 +867,15 @@ async function openPlayer(video, context = null) {
   }
   clearTimeout(state.upNextTimer);
   state.upNextTimer = null;
+  clearTimeout(state.idleTimer);
+  clearInterval(state.playerTicker);
   state.currentVideo = video;
   state.activePlaylist = normalizePlaylistContext(context || state.activePlaylist, video);
 
+  $('#timelineProgress').style.width = '0%';
+  $('#timelineBuffer').style.width = '0%';
+  $('#timelineThumb').style.left = '0%';
+  $('#timecode').textContent = '0:00 / 0:00';
   const modal = $('#playerModal');
   modal.classList.add('open', 'controls-visible', 'is-paused');
   modal.setAttribute('aria-hidden', 'false');
@@ -920,11 +929,13 @@ async function openPlayer(video, context = null) {
           $('#volumeBtn').textContent = event.target.isMuted?.() ? '🔇' : '🔊';
           updateCaptionButton();
           // Start with captions off even when the viewer's YouTube preference normally enables them.
-          setTimeout(() => setCaptionsEnabled(false, { quiet: true }), 250);
+          setTimeout(() => { if(openToken === state.playerOpenToken) setCaptionsEnabled(false, { quiet: true }); }, 250);
           event.target.playVideo();
           startProgressSaver();
         },
         onStateChange: event => {
+          if (openToken !== state.playerOpenToken || state.currentVideo?.id !== video.id) return;
+          clearTimeout(state.upNextTimer);
           updatePlayButton(event.data === YT.PlayerState.PLAYING);
           if (event.data !== YT.PlayerState.ENDED) return;
           const upcoming = getNextVideo();
@@ -941,16 +952,16 @@ async function openPlayer(video, context = null) {
           if (!state.captionsEnabled) setCaptionsEnabled(false, { quiet: true });
           else updateCaptionButton();
         },
-        onError: event => showPlayerError(event.data)
+        onError: event => { if(openToken === state.playerOpenToken) showPlayerError(event.data); }
       }
     });
   } catch (error) {
-    console.error(error);
-    showPlayerError(0);
+    if (openToken === state.playerOpenToken) showPlayerError(0);
   }
 }
 
 function closePlayer() {
+  if(document.fullscreenElement) void document.exitFullscreen().catch(()=>{});
   state.playerOpenToken += 1;
   if (state.playerReady && state.currentVideo) {
     saveProgress(state.currentVideo.id, state.player.getCurrentTime?.() || 0, state.player.getDuration?.() || 0);
@@ -1197,6 +1208,7 @@ function wireUI() {
   };
 
   $('#playerBack').onclick = closePlayer;
+  $('#pauseResume').onclick = togglePlay;
   $('#playerListBtn').onclick = () => toggleMyList(state.currentVideo);
   $('#prevBtn').onclick = () => {
     const previous = getPrevVideo();
@@ -1280,6 +1292,18 @@ function wireUI() {
 }
 
 
+function renderUpdateState(info = {}) {
+  const status = info.status || 'disabled';
+  const labels={idle:'Ready to check for updates',disabled:'Automatic updates are available in the installed Windows app.',checking:'Checking for updates…',current:"You're up to date",available:'Update available',downloading:'Downloading… '+Math.round(info.percent||0)+'%',ready:'Update ready · Version '+info.availableVersion,installing:'Restarting to install update…',error:'Update unavailable. Check your connection and try again.'};
+  $('#updateStatus').textContent=labels[status] || labels.error;
+  $('#updateProgress').hidden=status!=='downloading';
+  $('#updateProgress').value=info.percent||0;
+  $('#checkUpdates').disabled=['disabled','checking','downloading','ready','installing'].includes(status);
+  $('#restartUpdate').hidden=status!=='ready';
+  $('#laterUpdate').hidden=status!=='ready';
+  $('#updateNote').textContent=info.availableVersion ? info.version+' → '+info.availableVersion+' · Playback continues until you choose to restart.' : 'Updates install only when you choose Restart & update.';
+}
+
 function closeDesktopSettings() {
   const overlay = $('#desktopSettingsOverlay');
   if (!overlay) return;
@@ -1330,7 +1354,21 @@ async function initDesktopShell() {
   if (tokenState) tokenState.textContent = info.configured?.discordToken ? 'Configured' : 'Not configured';
   if (clientState) clientState.textContent = info.configured?.discordClientId ? 'Configured' : 'Not configured';
   if (youtubeState) youtubeState.textContent = info.configured?.youtubeApiKey ? 'Full API enabled' : 'Public feed mode';
-  if ($('#desktopEventChannel')) $('#desktopEventChannel').value = info.values?.eventSourceChannelId || '';
+  $('#desktopBotMode').value = info.values?.botMode || 'cloud';
+  $('#installedVersion').textContent = 'Version '+info.version;
+  if (desktopBridge.getUpdateState) {
+    renderUpdateState(await desktopBridge.getUpdateState());
+    desktopBridge.onUpdateState(renderUpdateState);
+    $('#checkUpdates').onclick = () => desktopBridge.checkForUpdates().then(renderUpdateState);
+    $('#restartUpdate').onclick = async () => {
+      if(state.currentVideo && state.playerReady) {
+        saveProgress(state.currentVideo.id,state.player.getCurrentTime?.()||0,state.player.getDuration?.()||0);
+        state.player.pauseVideo();
+      }
+      await desktopBridge.restartAndUpdate();
+    };
+    $('#laterUpdate').onclick = () => { closeDesktopSettings(); toast('Update saved for later','Restart & update remains available in Settings.'); };
+  }
   if ($('#desktopDiscordInvite')) $('#desktopDiscordInvite').value = info.values?.discordInvite || '';
   if ($('#desktopPollSeconds')) $('#desktopPollSeconds').value = Math.max(60, Math.round((info.values?.pollIntervalMs || 120000) / 1000));
   if ($('#desktopMessageContent')) $('#desktopMessageContent').checked = Boolean(info.configured?.messageContentIntent);
@@ -1361,7 +1399,7 @@ async function initDesktopShell() {
         discordToken: $('#desktopDiscordToken').value.trim(),
         discordClientId: $('#desktopClientId').value.trim(),
         youtubeApiKey: $('#desktopYoutubeKey').value.trim(),
-        eventSourceChannelId: $('#desktopEventChannel').value.trim(),
+        botMode: $('#desktopBotMode').value,
         discordInvite: $('#desktopDiscordInvite').value.trim(),
         messageContentIntent: $('#desktopMessageContent').checked,
         pollIntervalMs: Math.max(60, Number($('#desktopPollSeconds').value) || 120) * 1000

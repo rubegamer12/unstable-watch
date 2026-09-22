@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createUpdater, canUpdate } from './updater.mjs';
 import { app, BrowserWindow, Menu, Tray, ipcMain, shell, nativeImage, Notification, session } from 'electron';
 
 const APP_ID = 'com.unstable.watch';
@@ -15,6 +16,7 @@ let runtime = null;
 let quitting = false;
 let healthTimer = null;
 let activeUrl = null;
+let updates = null;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -61,7 +63,7 @@ function writeEnvFile(patch) {
   const next = { ...current };
   const allowed = [
     'DISCORD_BOT_TOKEN', 'DISCORD_CLIENT_ID', 'YOUTUBE_API_KEY', 'EVENT_SOURCE_CHANNEL_ID',
-    'DISCORD_INVITE', 'DISCORD_MESSAGE_CONTENT_INTENT', 'POLL_INTERVAL_MS'
+    'DISCORD_INVITE', 'DISCORD_MESSAGE_CONTENT_INTENT', 'POLL_INTERVAL_MS', 'DISCORD_BOT_MODE'
   ];
   for (const key of allowed) {
     if (!Object.hasOwn(patch, key)) continue;
@@ -96,7 +98,7 @@ function desktopState() {
       messageContentIntent: /^true$/i.test(env.DISCORD_MESSAGE_CONTENT_INTENT || '')
     },
     values: {
-      eventSourceChannelId: env.EVENT_SOURCE_CHANNEL_ID || '1382502803058196612',
+      botMode: ['cloud','local','disabled'].includes(env.DISCORD_BOT_MODE) ? env.DISCORD_BOT_MODE : 'cloud',
       discordInvite: env.DISCORD_INVITE || 'https://discord.gg/unstableevents',
       pollIntervalMs: Number.parseInt(env.POLL_INTERVAL_MS || '120000', 10) || 120000
     }
@@ -109,6 +111,8 @@ async function startLocalRuntime() {
     ? envPath()
     : (!app.isPackaged && fs.existsSync(path.join(app.getAppPath(), '.env')) ? path.join(app.getAppPath(), '.env') : envPath());
 
+  const env = readEnvFile();
+  process.env.DISCORD_BOT_MODE = ['cloud','local','disabled'].includes(env.DISCORD_BOT_MODE) ? env.DISCORD_BOT_MODE : 'cloud';
   const { startServer } = await import('../src/server.mjs');
   const publicDir = path.join(app.getAppPath(), 'public');
   let lastError = null;
@@ -149,6 +153,7 @@ function createTray() {
           rebuild();
         }
       },
+      { label: 'Check for updates', click: () => { void updates?.check(); mainWindow?.show(); } },
       { label: 'Open app-data folder', click: () => shell.openPath(dataRoot()) },
       { type: 'separator' },
       { label: 'Quit', click: () => { quitting = true; app.quit(); } }
@@ -183,7 +188,7 @@ function createWindow() {
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (!activeUrl || url.startsWith(activeUrl)) return;
+    if (activeUrl && new URL(url).origin === new URL(activeUrl).origin) return;
     event.preventDefault();
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
@@ -205,24 +210,29 @@ function createWindow() {
 }
 
 function wireIpc() {
-  ipcMain.handle('desktop:get-state', () => desktopState());
-  ipcMain.handle('desktop:window', (_event, action) => {
+  const trusted = handler => (event, ...args) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || new URL(event.senderFrame.url).origin !== new URL(activeUrl).origin) throw new Error('Untrusted desktop request');
+    return handler(event, ...args);
+  };
+  const handle = (channel, handler) => ipcMain.handle(channel, trusted(handler));
+  handle('desktop:get-state', () => desktopState());
+  handle('desktop:window', (_event, action) => {
     if (!mainWindow) return false;
     if (action === 'minimize') mainWindow.minimize();
     else if (action === 'maximize') mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
     else if (action === 'close') mainWindow.close();
     return true;
   });
-  ipcMain.handle('desktop:set-login', (_event, enabled) => {
+  handle('desktop:set-login', (_event, enabled) => {
     app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: enabled ? ['--background'] : [] });
     return app.getLoginItemSettings().openAtLogin;
   });
-  ipcMain.handle('desktop:save-config', (_event, input = {}) => {
+  handle('desktop:save-config', (_event, input = {}) => {
     const patch = {
       DISCORD_BOT_TOKEN: input.discordToken,
       DISCORD_CLIENT_ID: input.discordClientId,
       YOUTUBE_API_KEY: input.youtubeApiKey,
-      EVENT_SOURCE_CHANNEL_ID: input.eventSourceChannelId,
+      DISCORD_BOT_MODE: ['cloud','local','disabled'].includes(input.botMode) ? input.botMode : 'cloud',
       DISCORD_INVITE: input.discordInvite,
       DISCORD_MESSAGE_CONTENT_INTENT: input.messageContentIntent ? 'true' : 'false',
       POLL_INTERVAL_MS: input.pollIntervalMs
@@ -230,14 +240,17 @@ function wireIpc() {
     writeEnvFile(patch);
     return { ok: true, configured: desktopState().configured };
   });
-  ipcMain.handle('desktop:open-data', () => shell.openPath(dataRoot()));
-  ipcMain.handle('desktop:relaunch', () => {
+  handle('desktop:open-data', () => shell.openPath(dataRoot()));
+  handle('desktop:relaunch', () => {
     quitting = true;
     app.relaunch();
     app.quit();
     return true;
   });
-  ipcMain.handle('desktop:quit', () => {
+  handle('desktop:update-state', () => updates?.getState());
+  handle('desktop:update-check', () => updates?.check());
+  handle('desktop:update-restart', () => updates?.restart());
+  handle('desktop:quit', () => {
     quitting = true;
     app.quit();
     return true;
@@ -264,13 +277,25 @@ app.whenReady().then(async () => {
   });
   createTray();
   await startLocalRuntime();
+  const enabled = canUpdate({isPackaged:app.isPackaged, platform:process.platform, portable:Boolean(process.env.PORTABLE_EXECUTABLE_DIR), installed:fs.existsSync(path.join(path.dirname(process.execPath),'Uninstall Unstable Watch.exe'))});
+  try {
+  const updater = enabled ? (await import('electron-updater')).default.autoUpdater : null;
+  updates = createUpdater({updater,enabled,version:app.getVersion(),
+    publish: state => { if(state.status==='error') quitting=false; if(mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('desktop:update-state',state); },
+    beforeInstall:async()=> { runtime?.store.save(); quitting=true; }
+  });
+  } catch {
+    console.warn('[desktop] Updates are unavailable; the application can still be used.');
+    updates = createUpdater({enabled:false, version:app.getVersion()});
+  }
   createWindow();
+  updates.start();
   await updateTrayHealth();
   healthTimer = setInterval(updateTrayHealth, 30_000);
   healthTimer.unref?.();
 }).catch(error => {
-  console.error('[desktop] startup failed:', error);
-  if (Notification.isSupported()) new Notification({ title: 'Unstable Watch could not start', body: error.message }).show();
+  console.error('[desktop] Startup failed; check app-data configuration and local port availability.');
+  if (Notification.isSupported()) new Notification({ title: 'Unstable Watch could not start', body: 'Check the app-data configuration and try restarting.' }).show();
   app.quit();
 });
 
@@ -278,7 +303,7 @@ app.on('activate', () => {
   if (mainWindow) mainWindow.show();
 });
 
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', () => { quitting = true; updates?.stop(); });
 app.on('will-quit', async event => {
   if (!runtime) return;
   event.preventDefault();
