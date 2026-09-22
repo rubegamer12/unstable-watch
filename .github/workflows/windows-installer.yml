@@ -2,7 +2,7 @@ name: Build Windows installer
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
   pull_request:
   workflow_dispatch:
 
@@ -51,7 +51,7 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Publish installer to GitHub Releases
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
