@@ -1,3 +1,4 @@
+import { safeError } from './safe-error.mjs';
 import {
   ChannelType,
   Client,
@@ -9,6 +10,7 @@ import {
   SlashCommandBuilder
 } from 'discord.js';
 import { config, creators } from './config.mjs';
+import { eventFromMessage, newestLocalEvent, INACCESSIBLE_EXTERNAL_SOURCE } from './events.mjs';
 
 const CREATOR_CHOICES = creators.map(c => ({ name: c.name, value: c.id }));
 const EPHEMERAL = MessageFlags.Ephemeral;
@@ -18,7 +20,10 @@ const REQUIRED_SEND_PERMISSIONS = [
   PermissionFlagsBits.EmbedLinks
 ];
 
-const commands = [
+export const commands = [
+  new SlashCommandBuilder().setName('setsource').setDescription('Choose a local channel containing forwarded public events')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addChannelOption(o => o.setName('channel').setDescription('Local event source; posts appear in Unstable Watch').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)),
   new SlashCommandBuilder()
     .setName('setup')
     .setDescription('Set both Unstable notification channels')
@@ -105,18 +110,6 @@ function latestUploadFromStore(store) {
     .sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0))[0] || null;
 }
 
-function eventFromMessage(message) {
-  return {
-    id: message.id,
-    author: message.author?.username || 'Unstable Events',
-    content: message.content || message.embeds?.[0]?.description || message.embeds?.[0]?.title || 'An Unstable event was posted. Open the source message for details.',
-    createdAt: message.createdAt?.toISOString?.() || new Date().toISOString(),
-    jumpUrl: message.url,
-    image: message.attachments?.find?.(a => a.contentType?.startsWith('image/'))?.url || message.embeds?.[0]?.image?.url || null,
-    channelName: message.channel?.name || 'events'
-  };
-}
-
 function uploadEmbed(video, { test = false } = {}) {
   const creator = creators.find(c => c.id === video.creatorId);
   const embed = new EmbedBuilder()
@@ -131,11 +124,12 @@ function uploadEmbed(video, { test = false } = {}) {
   return embed;
 }
 
-function eventEmbed(event, { test = false } = {}) {
+export function eventEmbed(event, { test = false } = {}) {
   const embed = new EmbedBuilder()
     .setColor(0xff345f)
     .setTitle(test ? '⚡ Latest Unstable event • test' : '⚡ New Unstable event')
-    .setDescription(String(event.content || 'An Unstable event was posted.').slice(0, 3900))
+    .setDescription(String(event.content || 'An Unstable event was posted.').slice(0, 3500))
+    .addFields({name:'For', value:(event.targetCreators || ['Unspecified']).join(', ')}, {name:'Event', value:String(event.title || 'Unstable event').slice(0,250)}, {name:'Source', value:'Unstable Events · local relay'})
     .setFooter({ text: test ? 'Latest event • test notification' : `From #${event.channelName || 'events'}` })
     .setTimestamp(new Date(event.createdAt || Date.now()));
   if (event.image) embed.setImage(event.image);
@@ -171,21 +165,30 @@ export class DiscordBot {
     try {
       await guild.commands.set(commands);
     } catch (error) {
-      this.lastError = `Command registration in ${guild.name}: ${error.message}`;
+      this.lastError = `Command registration in ${guild.name}: ${safeError(error)}`;
       console.error('[discord]', this.lastError);
     }
   }
 
+  async localSource(guildId) {
+    const id = this.store.getGuild(guildId).eventSourceChannelId;
+    if (!id || id === INACCESSIBLE_EXTERNAL_SOURCE || !this.client?.isReady()) return null;
+    const guild = this.client.guilds.cache.get(guildId);
+    if (!guild) return null;
+    const source = await guild.channels.fetch(id).catch(() => null);
+    if (source?.guildId !== guildId || !source?.isTextBased()) return null;
+    const perms = source.permissionsFor?.(guild.members.me);
+    if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory])) return null;
+    return source;
+  }
+
   async verifySourceChannel() {
-    if (!this.client?.isReady() || !config.eventSourceChannelId) return;
-    const source = await this.client.channels.fetch(config.eventSourceChannelId).catch(() => null);
-    this.sourceChannelReady = Boolean(source?.isTextBased());
-    if (!this.sourceChannelReady) {
-      console.warn(`[discord] Event source channel ${config.eventSourceChannelId} is not accessible to the bot.`);
-    }
+    const sources = await Promise.all(Object.keys(this.store.state.guilds).map(id => this.localSource(id)));
+    this.sourceChannelReady = sources.some(Boolean);
   }
 
   async start() {
+    if (config.discordBotMode !== 'local') return;
     if (!config.discordToken) {
       console.warn('[discord] DISCORD_BOT_TOKEN missing; bot disabled.');
       return;
@@ -210,18 +213,21 @@ export class DiscordBot {
     this.client.on(Events.GuildCreate, guild => this.registerGuildCommands(guild));
     this.client.on(Events.InteractionCreate, interaction => this.handleInteraction(interaction).catch(error => this.handleInteractionError(interaction, error)));
     this.client.on(Events.MessageCreate, message => this.handleSourceEvent(message).catch(error => {
-      this.lastError = `Event relay: ${error.message}`;
+      this.lastError = `Event relay: ${safeError(error)}`;
       console.error('[discord]', this.lastError);
     }));
     this.client.on(Events.Error, error => {
-      this.lastError = error.message;
-      console.error('[discord] client error:', error.message);
+      this.lastError = safeError(error);
+      console.error('[discord] client error:', safeError(error));
     });
     this.client.on(Events.ShardReconnecting, shardId => {
       this.ready = false;
       console.warn(`[discord] Shard ${shardId} reconnecting…`);
     });
+    this.client.on(Events.ShardResume, () => { this.ready=this.client.isReady(); });
+    this.client.on(Events.ShardDisconnect, () => { this.ready=false; });
     this.client.on(Events.ShardReady, shardId => {
+      this.ready=this.client.isReady();
       console.log(`[discord] Shard ${shardId} ready.`);
     });
 
@@ -234,9 +240,10 @@ export class DiscordBot {
     try {
       await this.client.login(config.discordToken);
       this.loginAttempts = 0;
+      if(this.stopping) await this.client.destroy();
     } catch (error) {
       this.ready = false;
-      this.lastError = `Login failed: ${error.message}`;
+      this.lastError = `Login failed: ${safeError(error)}`;
       console.error('[discord]', this.lastError);
       const disallowed = error?.code === 4014 || /disallowed intents/i.test(error?.message || '');
       const badToken = error?.code === 'TokenInvalid' || /invalid token/i.test(error?.message || '');
@@ -253,11 +260,11 @@ export class DiscordBot {
     this.stopping = true;
     clearTimeout(this.loginRetryTimer);
     this.ready = false;
-    this.client?.destroy();
+    await this.client?.destroy();
   }
 
   async handleInteractionError(interaction, error) {
-    this.lastError = `Interaction: ${error.message}`;
+    this.lastError = `Interaction: ${safeError(error)}`;
     console.error('[discord]', this.lastError);
     const payload = { content: 'Something went wrong while running that command. Check my channel permissions and try again.', flags: EPHEMERAL };
     if (!interaction.isRepliable()) return;
@@ -286,7 +293,19 @@ export class DiscordBot {
 
   async handleInteraction(interaction) {
     if (!interaction.isChatInputCommand() || !interaction.guildId) return;
+    if (['setsource','status','testnotify'].includes(interaction.commandName) && interaction.deferReply) await interaction.deferReply({flags:EPHEMERAL});
+    const reply = payload => interaction.deferred ? interaction.editReply(payload) : interaction.reply(payload);
     const settings = this.store.getGuild(interaction.guildId);
+    if (interaction.commandName === 'setsource') {
+      const source = interaction.options.getChannel('channel', true);
+      const perms = source.permissionsFor?.(interaction.guild.members.me);
+      if (source.id === INACCESSIBLE_EXTERNAL_SOURCE || source.guildId !== interaction.guildId || !source.isTextBased() || !perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory])) {
+        return reply({content:'Choose a channel in this server where I have View Channel and Read Message History.', flags:EPHEMERAL});
+      }
+      this.store.patchGuild(interaction.guildId, {eventSourceChannelId:source.id});
+      await this.verifySourceChannel();
+      return reply({content:'Local event source: <#'+source.id+'>. Forward legitimate public Unstable Events here; they will appear in Unstable Watch. Enable Message Content intent in the bot configuration and Discord Developer Portal to read text, embeds and images.', flags:EPHEMERAL});
+    }
 
     if (interaction.commandName === 'setup') {
       const uploads = interaction.options.getChannel('uploads', true);
@@ -294,7 +313,7 @@ export class DiscordBot {
       if (!(await this.validateDestination(interaction, uploads))) return;
       if (!(await this.validateDestination(interaction, events))) return;
       this.store.patchGuild(interaction.guildId, { uploadChannelId: uploads.id, eventChannelId: events.id });
-      return interaction.reply({ content: `✅ Uploads → ${uploads}\n✅ Events → ${events}`, flags: EPHEMERAL });
+      return reply({ content: `✅ Uploads → ${uploads}\n✅ Events → ${events}`, flags: EPHEMERAL });
     }
 
     if (interaction.commandName === 'setchannel') {
@@ -302,7 +321,7 @@ export class DiscordBot {
       const channel = interaction.options.getChannel('channel', true);
       if (!(await this.validateDestination(interaction, channel))) return;
       this.store.patchGuild(interaction.guildId, type === 'uploads' ? { uploadChannelId: channel.id } : { eventChannelId: channel.id });
-      return interaction.reply({ content: `✅ ${type === 'uploads' ? 'Upload' : 'Event'} notifications will go to ${channel}.`, flags: EPHEMERAL });
+      return reply({ content: `✅ ${type === 'uploads' ? 'Upload' : 'Event'} notifications will go to ${channel}.`, flags: EPHEMERAL });
     }
 
     if (interaction.commandName === 'notifications') {
@@ -312,7 +331,7 @@ export class DiscordBot {
       if (type === 'uploads' || type === 'all') patch.uploadsEnabled = enabled;
       if (type === 'events' || type === 'all') patch.eventsEnabled = enabled;
       this.store.patchGuild(interaction.guildId, patch);
-      return interaction.reply({ content: `✅ ${type} notifications are now **${enabled ? 'on' : 'off'}**.`, flags: EPHEMERAL });
+      return reply({ content: `✅ ${type} notifications are now **${enabled ? 'on' : 'off'}**.`, flags: EPHEMERAL });
     }
 
     if (interaction.commandName === 'creator') {
@@ -322,20 +341,22 @@ export class DiscordBot {
       enabled ? current.add(creatorId) : current.delete(creatorId);
       this.store.patchGuild(interaction.guildId, { enabledCreators: [...current] });
       const creator = creators.find(c => c.id === creatorId);
-      return interaction.reply({ content: `✅ ${creator?.name || creatorId} upload alerts are **${enabled ? 'on' : 'off'}**.`, flags: EPHEMERAL });
+      return reply({ content: `✅ ${creator?.name || creatorId} upload alerts are **${enabled ? 'on' : 'off'}**.`, flags: EPHEMERAL });
     }
 
     if (interaction.commandName === 'mention') {
       const role = interaction.options.getRole('role');
       if (role?.id === interaction.guildId) {
-        return interaction.reply({ content: 'I won’t configure `@everyone` as an automatic ping. Choose a specific role instead.', flags: EPHEMERAL });
+        return reply({ content: 'I won’t configure `@everyone` as an automatic ping. Choose a specific role instead.', flags: EPHEMERAL });
       }
       this.store.patchGuild(interaction.guildId, { mentionRoleId: role?.id || null });
-      return interaction.reply({ content: role ? `✅ Alerts can now ping ${role}.` : '✅ Automatic role pings are disabled.', flags: EPHEMERAL });
+      return reply({ content: role ? `✅ Alerts can now ping ${role}.` : '✅ Automatic role pings are disabled.', flags: EPHEMERAL });
     }
 
     if (interaction.commandName === 'status') {
       const names = (settings.enabledCreators || []).map(id => creators.find(c => c.id === id)?.name || id).join(', ') || 'None';
+      const source = await this.localSource(interaction.guildId);
+      const latest = newestLocalEvent(this.store.state.recentEvents, interaction.guildId, settings.eventSourceChannelId);
       const embed = new EmbedBuilder()
         .setTitle('Unstable Watch settings')
         .setColor(0x8b5cff)
@@ -345,51 +366,56 @@ export class DiscordBot {
           { name: 'Uploads', value: settings.uploadsEnabled ? 'On' : 'Off', inline: true },
           { name: 'Events', value: settings.eventsEnabled ? 'On' : 'Off', inline: true },
           { name: 'Role ping', value: settings.mentionRoleId ? `<@&${settings.mentionRoleId}>` : 'Off', inline: true },
-          { name: 'Creators', value: names }
+          { name: 'Creators', value: names },
+          { name: 'Event source', value: settings.eventSourceChannelId ? '<#'+settings.eventSourceChannelId+'>' : 'Not configured · Use /setsource' },
+          { name: 'Source status', value: !settings.eventSourceChannelId ? 'Not configured' : !config.discordMessageContentIntent ? 'Message Content intent required' : source ? 'Ready' : 'Unavailable · check channel permissions' },
+          { name: 'Last event', value: latest ? '<t:'+Math.floor(new Date(latest.createdAt).getTime()/1000)+':R>' : 'None cached' }
         )
         .setFooter({ text: 'Use /help for all commands' });
-      return interaction.reply({ embeds: [embed], flags: EPHEMERAL });
+      return reply({ embeds: [embed], flags: EPHEMERAL });
     }
 
     if (interaction.commandName === 'testnotify') {
       const type = interaction.options.getString('type', true);
+      if (type === 'events' && !settings.eventSourceChannelId) return reply({content:'No local event source is configured. Use /setsource to choose the channel where Unstable Events are forwarded.', flags:EPHEMERAL});
       const channelId = type === 'uploads' ? settings.uploadChannelId : settings.eventChannelId;
-      const channel = channelId ? await this.client.channels.fetch(channelId).catch(() => null) : null;
-      if (!channel?.isTextBased()) return interaction.reply({ content: 'Set that notification channel first.', flags: EPHEMERAL });
-      if (!this.canSendTo(channel, interaction.guild)) return interaction.reply({ content: 'I can’t send messages/embeds in that channel yet.', flags: EPHEMERAL });
+      const channel = channelId && channelId !== INACCESSIBLE_EXTERNAL_SOURCE ? await interaction.guild.channels.fetch(channelId).catch(() => null) : null;
+      if (!channel?.isTextBased()) return reply({ content: 'Set that notification channel first.', flags: EPHEMERAL });
+      if (!this.canSendTo(channel, interaction.guild)) return reply({ content: 'I can’t send messages/embeds in that channel yet.', flags: EPHEMERAL });
 
       if (type === 'uploads') {
         const latest = latestUploadFromStore(this.store);
-        if (!latest) return interaction.reply({ content: 'I don’t have a cached YouTube upload yet. Wait for the first YouTube sync, then try again.', flags: EPHEMERAL });
+        if (!latest) return reply({ content: 'I don’t have a cached YouTube upload yet. Wait for the first YouTube sync, then try again.', flags: EPHEMERAL });
         await channel.send({
           content: `${mentionContent(settings)}🧪 **Latest upload test — ${latest.creator}**`,
           allowedMentions: { roles: settings.mentionRoleId ? [settings.mentionRoleId] : [], parse: [] },
           embeds: [uploadEmbed(latest, { test: true })]
         });
-        return interaction.reply({ content: `Latest upload test sent: **${latest.title}**`, flags: EPHEMERAL });
+        return reply({ content: `Latest upload test sent: **${latest.title}**`, flags: EPHEMERAL });
       }
 
-      const latestEvent = await this.getLatestEventForTest();
-      if (!latestEvent) return interaction.reply({ content: 'I don’t have a recent event yet and couldn’t read one from the event source channel.', flags: EPHEMERAL });
+      const latestEvent = await this.getLatestEventForTest(interaction.guildId);
+      if (!latestEvent) return reply({ content: 'No readable event was found in the configured local source. Forward an event there and check View Channel, Read Message History and Message Content intent.', flags: EPHEMERAL });
       await channel.send({
         content: `${mentionContent(settings)}🧪 **Latest event test**`,
         allowedMentions: { roles: settings.mentionRoleId ? [settings.mentionRoleId] : [], parse: [] },
         embeds: [eventEmbed(latestEvent, { test: true })]
       });
-      return interaction.reply({ content: 'Latest event test sent.', flags: EPHEMERAL });
+      return reply({ content: 'Latest event test sent.', flags: EPHEMERAL });
     }
 
     if (interaction.commandName === 'reset') {
       this.store.state.guilds[interaction.guildId] = {
         uploadChannelId: null,
         eventChannelId: null,
+        eventSourceChannelId: null,
         uploadsEnabled: true,
         eventsEnabled: true,
         enabledCreators: creators.map(c => c.id),
         mentionRoleId: null
       };
       this.store.scheduleSave();
-      return interaction.reply({ content: '✅ Settings reset. Run `/setup` to choose notification channels again.', flags: EPHEMERAL });
+      return reply({ content: '✅ Settings reset. Run `/setup` to choose notification channels again.', flags: EPHEMERAL });
     }
 
     if (interaction.commandName === 'help') {
@@ -399,6 +425,7 @@ export class DiscordBot {
         .setDescription('Upload + event notifications for your server.')
         .addFields(
           { name: '/setup', value: 'Choose upload and event channels.' },
+          { name: '/setsource', value: 'Choose a local source for forwarded public events. The bot cannot read the external Unstable Events server.' },
           { name: '/setchannel', value: 'Change one destination channel.' },
           { name: '/notifications', value: 'Enable/disable uploads, events, or both.' },
           { name: '/creator', value: 'Toggle alerts for an individual protagonist.' },
@@ -407,47 +434,42 @@ export class DiscordBot {
           { name: '/testnotify', value: 'Send the latest real upload or latest real event as a test.' },
           { name: '/reset', value: 'Reset this server’s settings.' }
         );
-      return interaction.reply({ embeds: [embed], flags: EPHEMERAL });
+      return reply({ embeds: [embed], flags: EPHEMERAL });
     }
 
     if (interaction.commandName === 'ping') {
-      return interaction.reply({ content: `🏓 Online · ${Math.max(0, Math.round(this.client.ws.ping))} ms gateway latency`, flags: EPHEMERAL });
+      return reply({ content: `🏓 Online · ${Math.max(0, Math.round(this.client.ws.ping))} ms gateway latency`, flags: EPHEMERAL });
     }
   }
 
-  async getLatestEventForTest() {
-    const cached = this.store.state.recentEvents?.[0];
+  async getLatestEventForTest(guildId) {
+    const settings = this.store.getGuild(guildId);
+    const cached = newestLocalEvent(this.store.state.recentEvents, guildId, settings.eventSourceChannelId);
     if (cached) return cached;
-    if (!this.client?.isReady() || !config.eventSourceChannelId) return null;
-    const source = await this.client.channels.fetch(config.eventSourceChannelId).catch(() => null);
-    if (!source?.isTextBased() || !source.messages?.fetch) return null;
-    const messages = await source.messages.fetch({ limit: 10 }).catch(() => null);
-    const latest = messages?.find?.(message => message.author?.id !== this.client?.user?.id) || messages?.first?.();
-    return latest ? eventFromMessage(latest) : null;
+    const source = await this.localSource(guildId);
+    if (!source?.messages?.fetch) return null;
+    const messages = await source.messages.fetch({limit:50}).catch(() => null);
+    const events = [...(messages?.values?.() || [])].map(message => eventFromMessage(message, this.client.user.id)).filter(Boolean);
+    const latest = newestLocalEvent(events, guildId, settings.eventSourceChannelId);
+    if (latest) this.store.addEvent(latest);
+    return latest;
   }
 
   async handleSourceEvent(message) {
-    if (message.channelId !== config.eventSourceChannelId || message.author?.id === this.client?.user?.id) return;
-
-    const event = eventFromMessage(message);
-
-    const added = this.store.addEvent(event);
-    if (!added) return;
-    await this.onEvent(event);
-
-    const embed = eventEmbed(event);
-
-    for (const [guildId, settings] of Object.entries(this.store.state.guilds)) {
-      if (!settings.eventsEnabled || !settings.eventChannelId) continue;
-      if (settings.eventChannelId === message.channelId && guildId === message.guildId) continue;
-      const channel = await this.client.channels.fetch(settings.eventChannelId).catch(() => null);
-      if (!channel?.isTextBased()) continue;
-      await channel.send({
-        content: `${mentionContent(settings)}⚡ **New Unstable event**`,
-        allowedMentions: { roles: settings.mentionRoleId ? [settings.mentionRoleId] : [], parse: [] },
-        embeds: [embed]
-      }).catch(error => console.error('[discord] event relay:', error.message));
-    }
+    const settings = this.store.state.guilds[message.guildId];
+    if (!settings?.eventSourceChannelId || message.channelId !== settings.eventSourceChannelId) return;
+    const event = eventFromMessage(message, this.client?.user?.id);
+    if (!event || !this.store.addEvent(event)) return;
+    await this.onEvent(event).catch(() => console.warn('[discord] Event web notification failed; event remains cached.'));
+    if (!settings.eventsEnabled || !settings.eventChannelId || settings.eventChannelId === message.channelId) return;
+    const guild = this.client.guilds.cache.get(message.guildId);
+    const channel = await guild?.channels.fetch(settings.eventChannelId).catch(() => null);
+    if (!channel?.isTextBased() || channel.guildId !== message.guildId) return;
+    await channel.send({
+      content: mentionContent(settings)+'⚡ **UNSTABLE EVENT**',
+      allowedMentions:{roles:settings.mentionRoleId ? [settings.mentionRoleId] : [], parse:[]},
+      embeds:[eventEmbed(event)]
+    }).catch(() => console.warn('[discord] Could not send local event notification; check destination permissions.'));
   }
 
   async announceUpload(video) {
@@ -463,7 +485,7 @@ export class DiscordBot {
         content: `${mentionContent(settings)}🔔 **${video.creator} uploaded!**`,
         allowedMentions: { roles: settings.mentionRoleId ? [settings.mentionRoleId] : [], parse: [] },
         embeds: [embed]
-      }).catch(error => console.error('[discord] upload notify:', error.message));
+      }).catch(error => console.error('[discord] upload notify:', safeError(error)));
     }
   }
 }

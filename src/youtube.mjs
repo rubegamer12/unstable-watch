@@ -1,3 +1,4 @@
+import { safeError } from './safe-error.mjs';
 import { config, creators } from './config.mjs';
 import { getUnseenVideos } from './video-diff.mjs';
 import { classifyArcTitle, looksLikeArcPlaylist } from './arcs.mjs';
@@ -10,20 +11,20 @@ const MAX_ARC_PLAYLISTS_PER_CREATOR = 40;
 const PUBLIC_FEED = 'https://www.youtube.com/feeds/videos.xml';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36 UnstableWatch/4.1';
 
-async function fetchText(url, label = 'YouTube') {
+async function fetchText(url, label = 'YouTube', signal) {
   const response = await fetch(url, {
     headers: {
       'user-agent': USER_AGENT,
       'accept-language': 'en-US,en;q=0.9',
       accept: 'text/html,application/atom+xml,application/xml;q=0.9,*/*;q=0.8'
     },
-    signal: AbortSignal.timeout(15_000)
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000)
   });
   if (!response.ok) throw new Error(`${label} ${response.status}`);
   return response.text();
 }
 
-async function youtube(path, params) {
+async function youtube(path, params, signal) {
   if (!config.youtubeApiKey) throw new Error('YOUTUBE_API_KEY is missing');
   const url = new URL(`${API}/${path}`);
   for (const [key, value] of Object.entries({ ...params, key: config.youtubeApiKey })) {
@@ -31,17 +32,10 @@ async function youtube(path, params) {
   }
   const response = await fetch(url, {
     headers: { 'user-agent': USER_AGENT },
-    signal: AbortSignal.timeout(15_000)
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000)
   });
   if (!response.ok) {
-    let detail = '';
-    try {
-      const payload = await response.json();
-      detail = payload?.error?.message || JSON.stringify(payload);
-    } catch {
-      detail = await response.text();
-    }
-    throw new Error(`YouTube API ${response.status}: ${String(detail).slice(0, 240)}`);
+    throw new Error(`YouTube API ${response.status}`);
   }
   return response.json();
 }
@@ -75,6 +69,8 @@ export class YouTubeService {
     this.lastError = null;
     this.lastSuccessAt = null;
     this.polling = false;
+    this.stopping = false;
+    this.abort = new AbortController();
   }
 
   get mode() {
@@ -86,7 +82,7 @@ export class YouTubeService {
 
     if (!config.youtubeApiKey) {
       const channelUrl = `https://www.youtube.com/@${creator.handle}`;
-      const channelId = creator.channelId || extractChannelId(await fetchText(channelUrl, `YouTube handle @${creator.handle}`), creator.handle);
+      const channelId = creator.channelId || extractChannelId(await fetchText(channelUrl, `YouTube handle @${creator.handle}`, this.abort.signal), creator.handle);
       if (!channelId) {
         throw new Error(`Could not resolve public channel ID for @${creator.handle}. Add an optional YOUTUBE_API_KEY for the full archive if YouTube blocks the public feed.`);
       }
@@ -106,7 +102,7 @@ export class YouTubeService {
     const data = await youtube('channels', {
       part: 'snippet,contentDetails',
       forHandle: creator.handle
-    });
+    }, this.abort.signal);
     const channel = data.items?.[0];
     if (channel && creator.channelId && channel.id !== creator.channelId) throw new Error('YouTube channel identity mismatch');
     if (!channel) throw new Error(`Could not resolve YouTube handle @${creator.handle}`);
@@ -129,7 +125,7 @@ export class YouTubeService {
     if (!config.youtubeApiKey) {
       const feedUrl = new URL(PUBLIC_FEED);
       feedUrl.searchParams.set('channel_id', resolved.channelId);
-      const xml = await fetchText(feedUrl, `${creator.name} public feed`);
+      const xml = await fetchText(feedUrl, `${creator.name} public feed`, this.abort.signal);
       return parseYouTubeAtomFeed(xml, resolved).slice(0, maxResults);
     }
 
@@ -143,7 +139,7 @@ export class YouTubeService {
         maxResults: Math.min(50, maxResults - videos.length)
       };
       if (pageToken) params.pageToken = pageToken;
-      const data = await youtube('playlistItems', params);
+      const data = await youtube('playlistItems', params, this.abort.signal);
       videos.push(...(data.items || []).map(item => mapVideo(item, resolved)).filter(v => v.id && v.channelId === resolved.channelId));
       pageToken = data.nextPageToken;
       if (!pageToken) break;
@@ -158,7 +154,7 @@ export class YouTubeService {
     for (let index = 0; index < videos.length; index += 50) {
       const ids = videos.slice(index, index + 50).map(video => video.id).filter(Boolean);
       if (!ids.length) continue;
-      const data = await youtube('videos', { part: 'contentDetails,status', id: ids.join(',') });
+      const data = await youtube('videos', { part: 'contentDetails,status', id: ids.join(',') }, this.abort.signal);
       for (const item of data.items || []) {
         details.set(item.id, {
           durationSeconds: parseIsoDuration(item.contentDetails?.duration || ''),
@@ -181,7 +177,7 @@ export class YouTubeService {
         maxResults: Math.min(50, maxResults - ids.length)
       };
       if (pageToken) params.pageToken = pageToken;
-      const data = await youtube('playlistItems', params);
+      const data = await youtube('playlistItems', params, this.abort.signal);
       ids.push(...(data.items || []).map(item => item.contentDetails?.videoId).filter(Boolean));
       pageToken = data.nextPageToken;
       if (!pageToken) break;
@@ -201,7 +197,7 @@ export class YouTubeService {
         maxResults: 50
       };
       if (pageToken) params.pageToken = pageToken;
-      const data = await youtube('playlists', params);
+      const data = await youtube('playlists', params, this.abort.signal);
       playlists.push(...(data.items || []));
       pageToken = data.nextPageToken;
       if (!pageToken) break;
@@ -232,7 +228,7 @@ export class YouTubeService {
           videoIds
         });
       } catch (error) {
-        console.warn(`[youtube] ${creator.name} arc playlist skipped: ${error.message}`);
+        console.warn(`[youtube] ${creator.name} arc playlist skipped: ${safeError(error)}`);
       }
     }
 
@@ -257,21 +253,24 @@ export class YouTubeService {
   }
 
   async poll({ notify = true, full = false } = {}) {
-    if (this.polling) return;
+    if (this.polling || this.stopping) return;
     this.polling = true;
+    this.pollDone = new Promise(resolve => { this.finishPoll = resolve; });
     let anySuccess = false;
     try {
       for (const creator of creators) {
+        if(this.stopping) break;
         try {
           const rawVideos = await this.fetchCreatorVideos(creator, full ? MAX_LIBRARY_RESULTS : 30);
           const enrichedVideos = await this.enrichVideoDetails(rawVideos);
+          if(this.stopping) break;
           let arcPlaylists = this.store.state.arcPlaylists?.[creator.id] || [];
 
           if (full) {
             try {
               arcPlaylists = await this.fetchCreatorArcPlaylists(creator, enrichedVideos);
             } catch (error) {
-              console.warn(`[youtube] ${creator.name} arc discovery: ${error.message}`);
+              console.warn(`[youtube] ${creator.name} arc discovery: ${safeError(error)}`);
             }
           }
 
@@ -296,8 +295,8 @@ export class YouTubeService {
           this.creatorErrors.delete(creator.id);
           anySuccess = true;
         } catch (error) {
-          this.creatorErrors.set(creator.id, error.message);
-          this.lastError = `${creator.name}: ${error.message}`;
+          this.creatorErrors.set(creator.id, safeError(error));
+          this.lastError = `${creator.name}: ${safeError(error)}`;
           console.error('[youtube]', this.lastError);
         }
       }
@@ -307,18 +306,23 @@ export class YouTubeService {
       }
     } finally {
       this.polling = false;
+      this.finishPoll?.();
     }
   }
 
   async start() {
     await this.poll({ notify: false, full: true });
+    if(this.stopping) return;
     this.timer = setInterval(() => this.poll({ notify: true, full: false }), config.pollIntervalMs);
     this.timer.unref?.();
   }
 
   stop() {
+    this.stopping = true;
+    this.abort.abort();
     clearInterval(this.timer);
     this.timer = null;
+    return this.pollDone;
   }
 
   getFeed() {

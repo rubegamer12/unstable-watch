@@ -3,7 +3,7 @@ services:
     name: unstable-watch
     runtime: node
     plan: 0.5c-512mb
-    buildCommand: npm install --omit=dev
+    buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /api/health
     maxShutdownDelaySeconds: 30
@@ -14,8 +14,12 @@ services:
         value: /var/data
       - key: POLL_INTERVAL_MS
         value: 120000
-      - key: EVENT_SOURCE_CHANNEL_ID
-        value: 1382502803058196612
+      - key: DISCORD_BOT_MODE
+        value: local
+      - key: NODE_ENV
+        value: production
+      - key: ELECTRON_SKIP_BINARY_DOWNLOAD
+        value: "1"
       - key: DISCORD_INVITE
         value: https://discord.gg/unstableevents
       - key: DISCORD_MESSAGE_CONTENT_INTENT
@@ -24,12 +28,8 @@ services:
         sync: false
       - key: DISCORD_BOT_TOKEN
         sync: false
-      - key: YOUTUBE_API_KEY
-        sync: false
-      - key: VAPID_PUBLIC_KEY
-        sync: false
-      - key: VAPID_PRIVATE_KEY
-        sync: false
+      # YOUTUBE_API_KEY is optional; add it in the host dashboard for a deeper archive.
+      # VAPID keys are generated once and saved on the persistent disk by default.
     disk:
       name: unstable-watch-data
       mountPath: /var/data

@@ -105,12 +105,15 @@ export async function startServer({
   app.get('/api/health', (_req, res) => {
     res.json({
       ok: true,
+      serverReady: !closing,
+      uptime: Math.floor(process.uptime()),
+      discordBotMode: config.discordBotMode,
       discordReady: discord.ready,
-      discordConfigured: Boolean(config.discordToken),
+      discordConfigured: config.discordBotMode === 'local' && Boolean(config.discordToken),
       discordSourceReady: discord.sourceChannelReady,
-      discordError: discord.lastError,
-      youtubeReady: Object.values(store.state.latestVideos).some(videos => videos?.length),
-      youtubeError: youtube.lastError,
+      discordError: discord.lastError ? 'Discord needs attention; check configuration and permissions.' : null,
+      youtubeReady: youtube.getFeed().some(creator => creator.videos.length),
+      youtubeError: youtube.lastError ? 'One or more creator feeds could not refresh; cached videos remain available.' : null,
       youtubeLastSuccessAt: youtube.lastSuccessAt,
       youtubeMode: youtube.mode,
       creatorCount: creators.length,
@@ -123,7 +126,6 @@ export async function startServer({
     res.json({
       discordInvite: config.discordInvite,
       botInvite: discord.inviteUrl,
-      eventSourceChannelId: config.eventSourceChannelId,
       vapidPublicKey: push.publicKey,
       pollIntervalMs: config.pollIntervalMs,
       youtubeMode: youtube.mode,
@@ -208,15 +210,19 @@ export async function startServer({
   const url = `http://${displayHost}:${actualPort}`;
   console.log(`[web] ${url}`);
 
-  if (startServices) await Promise.allSettled([discord.start(), youtube.start()]);
+  // Readiness/polling must not delay HTTP listening, desktop startup or signal handlers.
+  const servicesStarted = startServices ? Promise.allSettled([discord.start(), youtube.start()]) : Promise.resolve();
 
   const close = async () => {
     if (closing) return;
     closing = true;
-    youtube.stop();
+    await youtube.stop();
     await discord.stop();
     for (const client of sseClients) client.end();
+    await servicesStarted;
+    clearTimeout(store.saveTimer);
     store.save();
+    server.closeIdleConnections?.();
     await new Promise(resolve => server.close(resolve));
   };
 

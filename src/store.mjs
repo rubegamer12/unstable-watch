@@ -71,9 +71,10 @@ export class Store {
   }
 
   save() {
+    clearTimeout(this.saveTimer);
     ensureDir();
     const tmp = `${STATE_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2));
+    fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2), {mode:0o600});
     fs.renameSync(tmp, STATE_FILE);
   }
 
@@ -82,6 +83,7 @@ export class Store {
       this.state.guilds[guildId] = {
         uploadChannelId: null,
         eventChannelId: null,
+        eventSourceChannelId: null,
         uploadsEnabled: true,
         eventsEnabled: true,
         enabledCreators: [...DEFAULT_CREATORS],
@@ -160,6 +162,7 @@ export class Store {
   addEvent(event) {
     if (this.state.recentEvents.some(existing => existing.id === event.id)) return false;
     this.state.recentEvents.unshift(event);
+    this.state.recentEvents.sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
     this.state.recentEvents = this.state.recentEvents.slice(0, 50);
     this.scheduleSave();
     return true;
@@ -173,5 +176,5 @@ export function loadVapidFile() {
 
 export function saveVapidFile(keys) {
   ensureDir();
-  fs.writeFileSync(VAPID_FILE, JSON.stringify(keys, null, 2));
+  fs.writeFileSync(VAPID_FILE, JSON.stringify(keys, null, 2), {mode:0o600});
 }
