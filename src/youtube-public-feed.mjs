@@ -1,9 +1,24 @@
-const CHANNEL_ID_PATTERNS = [
-  /\"channelId\":\"(UC[0-9A-Za-z_-]{20,})\"/,
-  /\"externalId\":\"(UC[0-9A-Za-z_-]{20,})\"/,
-  /<meta[^>]+itemprop=["']channelId["'][^>]+content=["'](UC[0-9A-Za-z_-]{20,})["']/i,
-  /youtube\.com\/channel\/(UC[0-9A-Za-z_-]{20,})/i
-];
+// Only page-owner metadata can identify a channel. Generic channelId fields
+// may belong to recommended videos from another creator.
+function channelMetadata(html) {
+  const match = /"channelMetadataRenderer"\s*:\s*\{/.exec(html);
+  if (!match) return null;
+  const start = match.index + match[0].lastIndexOf('{');
+  let depth = 0, quoted = false, escaped = false;
+  for (let i = start; i < html.length; i++) {
+    const char = html[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '{') depth++;
+    else if (char === '}' && --depth === 0) {
+      try { return JSON.parse(html.slice(start, i + 1)); } catch { return null; }
+    }
+  }
+  return null;
+}
 
 function decodeEntity(entity) {
   const named = {
@@ -13,7 +28,7 @@ function decodeEntity(entity) {
     const hex = entity[1]?.toLowerCase() === 'x';
     const raw = entity.slice(hex ? 2 : 1);
     const value = Number.parseInt(raw, hex ? 16 : 10);
-    return Number.isFinite(value) ? String.fromCodePoint(value) : `&${entity};`;
+    return Number.isFinite(value) && value >= 0 && value <= 0x10ffff ? String.fromCodePoint(value) : `&${entity};`;
   }
   return named[entity] ?? `&${entity};`;
 }
@@ -41,25 +56,43 @@ function attrValue(xml, tag, attr) {
   return match ? decodeXml(match[1]) : '';
 }
 
-export function extractChannelId(html = '') {
-  for (const pattern of CHANNEL_ID_PATTERNS) {
-    const match = pattern.exec(String(html));
-    if (match?.[1]) return match[1];
+export function extractChannelId(html = '', expectedHandle = '') {
+  const text = String(html);
+  const metadata = channelMetadata(text);
+  if (metadata) {
+    if (expectedHandle && metadata.vanityChannelUrl) {
+      try {
+        const actual = new URL(metadata.vanityChannelUrl).pathname.replace(/^\/@/, '').replace(/\/$/, '');
+        if (actual.toLowerCase() !== expectedHandle.replace(/^@/, '').toLowerCase()) return null;
+      } catch { return null; }
+    }
+    return /^UC[0-9A-Za-z_-]{22}$/.test(metadata.externalId || '') ? metadata.externalId : null;
+  }
+  for (const tag of text.match(/<meta\b[^>]*>/gi) || []) {
+    if (!/\bitemprop=["']channelId["']/i.test(tag)) continue;
+    const id = /\bcontent=["'](UC[0-9A-Za-z_-]{22})["']/i.exec(tag)?.[1];
+    if (id) return id;
   }
   return null;
 }
 
 export function parseYouTubeAtomFeed(xml = '', creator = {}) {
+  const header = String(xml).split(/<entry\b/i)[0];
+  const feedChannelId = tagText(header, 'yt:channelId');
+  if (creator.channelId && feedChannelId !== creator.channelId) throw new Error('Public feed channel does not match the requested creator');
   const entries = String(xml).match(/<entry\b[\s\S]*?<\/entry>/gi) || [];
   return entries.map(entry => {
     const id = tagText(entry, 'yt:videoId');
     if (!id) return null;
+    const channelId = tagText(entry, 'yt:channelId');
+    if (creator.channelId && channelId !== creator.channelId) return null;
     const title = tagText(entry, 'title') || 'Untitled upload';
     const description = tagText(entry, 'media:description');
     const publishedAt = tagText(entry, 'published') || new Date().toISOString();
     const thumbnail = attrValue(entry, 'media:thumbnail', 'url') || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
     return {
       id,
+      channelId: channelId || feedChannelId || null,
       creatorId: creator.id,
       creator: creator.name,
       title,

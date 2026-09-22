@@ -607,3 +607,13 @@ body.desktop-app.player-active .topbar{opacity:0;pointer-events:none}
   .arc-folder-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
   .events-panel{grid-template-columns:1fr 1.2fr}
 }
+
+/* Dedicated creator libraries */
+.creator-section{scroll-margin-top:145px;border-top:1px solid #ffffff12;padding-top:32px}
+.creator-section .kicker{color:var(--creator-accent)}
+.creator-section-detail{color:#aaa8b6;margin-top:8px;font-size:13px}
+.creator-section-actions{display:flex;gap:10px;align-items:center}
+.creator-section-empty{padding:28px;border:1px solid #ffffff15;background:#111118;border-radius:12px;color:#bdbacb;line-height:1.6}
+.creator-section .video-rail{padding-bottom:18px}
+
+#creatorSections{scroll-margin-top:125px}

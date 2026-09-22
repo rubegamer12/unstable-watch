@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { decodeXml, extractChannelId, parseYouTubeAtomFeed } from '../src/youtube-public-feed.mjs';
 
 test('extractChannelId supports common YouTube handle page shapes', () => {
-  assert.equal(extractChannelId('{"channelId":"UC1234567890123456789012"}'), 'UC1234567890123456789012');
-  assert.equal(extractChannelId('{"externalId":"UCabcdefghijklmnopqrstuv"}'), 'UCabcdefghijklmnopqrstuv');
+  assert.equal(extractChannelId('{"channelId":"UC1234567890123456789012"}'), null);
+  assert.equal(extractChannelId('{"channelMetadataRenderer":{"externalId":"UCabcdefghijklmnopqrstuv"}}'), 'UCabcdefghijklmnopqrstuv');
   assert.equal(extractChannelId('<meta itemprop="channelId" content="UCzyxwvutsrqponmlkjihgfe">'), 'UCzyxwvutsrqponmlkjihgfe');
 });
 

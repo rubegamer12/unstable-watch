@@ -51,6 +51,7 @@ function mapVideo(item, creator) {
   const videoId = item.contentDetails?.videoId || snippet.resourceId?.videoId;
   return {
     id: videoId,
+    channelId: snippet.videoOwnerChannelId || creator.channelId,
     creatorId: creator.id,
     creator: creator.name,
     title: snippet.title || 'Untitled upload',
@@ -69,6 +70,7 @@ export class YouTubeService {
     this.store = store;
     this.onUpload = onUpload;
     this.resolved = new Map();
+    this.creatorErrors = new Map();
     this.timer = null;
     this.lastError = null;
     this.lastSuccessAt = null;
@@ -85,7 +87,7 @@ export class YouTubeService {
     if (!config.youtubeApiKey) {
       const channelUrl = `https://www.youtube.com/@${creator.handle}`;
       const html = await fetchText(channelUrl, `YouTube handle @${creator.handle}`);
-      const channelId = extractChannelId(html);
+      const channelId = extractChannelId(html, creator.handle);
       if (!channelId) {
         throw new Error(`Could not resolve public channel ID for @${creator.handle}. Add an optional YOUTUBE_API_KEY for the full archive if YouTube blocks the public feed.`);
       }
@@ -97,6 +99,7 @@ export class YouTubeService {
         uploadsPlaylistId: null,
         channelUrl
       };
+      if ([...this.resolved.values()].some(item => item.channelId === channelId && item.id !== creator.id)) throw new Error('Channel already belongs to a different creator');
       this.resolved.set(creator.id, resolved);
       return resolved;
     }
@@ -141,7 +144,7 @@ export class YouTubeService {
       };
       if (pageToken) params.pageToken = pageToken;
       const data = await youtube('playlistItems', params);
-      videos.push(...(data.items || []).map(item => mapVideo(item, resolved)).filter(v => v.id));
+      videos.push(...(data.items || []).map(item => mapVideo(item, resolved)).filter(v => v.id && v.channelId === resolved.channelId));
       pageToken = data.nextPageToken;
       if (!pageToken) break;
     }
@@ -282,7 +285,7 @@ export class YouTubeService {
             this.store.setLatestVideos(creator.id, videos);
             this.store.setArcPlaylists(creator.id, arcPlaylists);
           } else if (videos.length) {
-            const existing = (this.store.state.latestVideos[creator.id] || []).filter(video => video.isUnstable !== false && video.isShort !== true);
+            const existing = (this.store.state.latestVideos[creator.id] || []).filter(video => video.isUnstable !== false && video.isShort !== true && video.channelId === this.resolved.get(creator.id)?.channelId);
             const incomingIds = new Set(videos.map(v => v.id));
             const merged = [...videos, ...existing.filter(v => !incomingIds.has(v.id))].slice(0, MAX_LIBRARY_RESULTS);
             this.store.setLatestVideos(creator.id, merged);
@@ -290,15 +293,17 @@ export class YouTubeService {
 
           if (notify) await this.notifyNewVideos(creator, videos);
           else if (videos[0]) this.store.setSeenVideo(creator.id, videos[0].id);
+          this.creatorErrors.delete(creator.id);
           anySuccess = true;
         } catch (error) {
+          this.creatorErrors.set(creator.id, error.message);
           this.lastError = `${creator.name}: ${error.message}`;
           console.error('[youtube]', this.lastError);
         }
       }
       if (anySuccess) {
         this.lastSuccessAt = new Date().toISOString();
-        this.lastError = null;
+        this.lastError = this.creatorErrors.size ? [...this.creatorErrors.values()].join('; ') : null;
       }
     } finally {
       this.polling = false;
@@ -324,7 +329,8 @@ export class YouTubeService {
         channelId: resolved?.channelId || null,
         channelUrl: resolved?.channelUrl || `https://www.youtube.com/@${creator.handle}`,
         avatar: resolved?.avatar || '',
-        videos: this.store.state.latestVideos[creator.id] || [],
+        syncError: this.creatorErrors.get(creator.id) || null,
+        videos: (this.store.state.latestVideos[creator.id] || []).filter(video => resolved?.channelId && video.channelId === resolved.channelId && video.creatorId === creator.id),
         arcPlaylists: this.store.state.arcPlaylists?.[creator.id] || []
       };
     });

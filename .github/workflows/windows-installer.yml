@@ -3,13 +3,14 @@ name: Build Windows installer
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: windows-installer-main
+  group: windows-installer-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -50,6 +51,7 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Publish installer to GitHub Releases
+        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

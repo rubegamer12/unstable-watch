@@ -264,8 +264,7 @@ function renderCreators() {
     card.append(number, avatar, name, tagline, count, arrow);
 
     const choose = () => {
-      setLibraryFilter(creator.id);
-      $('#library').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('creator-' + creator.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
     card.addEventListener('click', choose);
     card.addEventListener('keydown', event => {
@@ -276,6 +275,60 @@ function renderCreators() {
     });
     grid.appendChild(card);
   });
+}
+
+function renderCreatorSections() {
+  const root = $('#creatorSections');
+  root.replaceChildren();
+  for (const creator of state.feed.creators) {
+    const videos = state.videos.filter(video => video.creatorId === creator.id);
+    const section = document.createElement('section');
+    section.className = 'content-shell creator-section';
+    section.id = 'creator-' + creator.id;
+    section.style.setProperty('--creator-accent', creator.accent);
+    const heading = document.createElement('div');
+    heading.className = 'section-heading';
+    const copy = document.createElement('div');
+    const kicker = document.createElement('span');
+    kicker.className = 'kicker';
+    kicker.textContent = 'THE ' + creator.name.toUpperCase() + ' PERSPECTIVE';
+    const title = document.createElement('h2');
+    title.textContent = creator.name;
+    const detail = document.createElement('p');
+    detail.className = 'creator-section-detail';
+    detail.textContent = videos.length + (videos.length === 1 ? ' video · ' : ' videos · ' ) + creator.tagline;
+    copy.append(kicker, title, detail);
+    const actions = document.createElement('div');
+    actions.className = 'creator-section-actions';
+    const channel = document.createElement('a');
+    channel.className = 'btn btn-ghost compact';
+    channel.href = creator.channelUrl;
+    channel.target = '_blank';
+    channel.rel = 'noopener noreferrer';
+    channel.textContent = 'YouTube channel ↗';
+    const browse = document.createElement('button');
+    browse.className = 'btn btn-glass compact';
+    browse.textContent = 'Browse all';
+    browse.disabled = !videos.length;
+    browse.onclick = () => { setLibraryFilter(creator.id); $('#library').scrollIntoView({behavior:'smooth'}); };
+    actions.append(channel, browse);
+    heading.append(copy, actions);
+    section.append(heading);
+    if (videos.length) {
+      const rail = document.createElement('div');
+      rail.className = 'video-rail';
+      rail.setAttribute('aria-label', creator.name + ' videos');
+      const context = { id: 'creator-' + creator.id, title: creator.name + ' · newest first', videos };
+      videos.slice(0, 12).forEach(video => rail.append(videoCard(video, {context})));
+      section.append(rail);
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'creator-section-empty';
+      empty.textContent = creator.syncError ? 'This channel could not be synced. We’ll retry automatically. You can still open the YouTube channel.' : 'Checking this creator’s uploads…';
+      section.append(empty);
+    }
+    root.append(section);
+  }
 }
 
 function allVideosContext() {
@@ -570,6 +623,7 @@ function renderFeed() {
   renderLatest();
   renderStoryOrder();
   renderCreators();
+  renderCreatorSections();
   renderArcFolders();
   renderFilterBar();
   renderLibrary();
@@ -1259,7 +1313,7 @@ async function refreshDesktopRuntimeLabel() {
     root.classList.add('bad');
     root.querySelector('span').textContent = health.discordError || health.youtubeError || 'Service needs attention';
   } else {
-    root.querySelector('span').textContent = `${health.discordReady ? 'Bot online' : 'Bot connecting'} · ${health.youtubeReady ? 'Feed ready' : 'Feed syncing'}`;
+    root.querySelector('span').textContent = `${health.discordReady ? 'Bot online' : health.discordConfigured ? 'Bot connecting' : 'Bot optional'} · ${health.youtubeReady ? 'Feed ready' : 'Feed syncing'}`;
   }
 }
 
@@ -1427,7 +1481,7 @@ async function refreshHealth() {
     $('#systemDot').className = 'status-dot bad';
     $('#systemStatus').textContent = 'YouTube feed needs attention';
   } else if (!health.discordReady) {
-    $('#systemStatus').textContent = 'Website online · Discord bot connecting';
+    $('#systemStatus').textContent = health.discordConfigured ? 'Website online · Discord bot connecting' : 'Watch hub online · Discord bot optional';
   }
 }
 

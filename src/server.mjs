@@ -106,6 +106,7 @@ export async function startServer({
     res.json({
       ok: true,
       discordReady: discord.ready,
+      discordConfigured: Boolean(config.discordToken),
       discordSourceReady: discord.sourceChannelReady,
       discordError: discord.lastError,
       youtubeReady: Object.values(store.state.latestVideos).some(videos => videos?.length),
