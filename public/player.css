@@ -1,0 +1,92 @@
+/* One player layout owns sizing. In particular, legacy iframe min-height:100%
+   must never expand a video behind its controls. Chrome stays outside the embed. */
+#playerModal .player-screen {
+  display:grid!important;
+  place-items:stretch!important;
+  grid-template-columns:minmax(0,1fr);
+  grid-template-rows:60px minmax(200px,1fr) 108px;
+  background:#080808!important;
+}
+#playerModal .player-screen.details-open { grid-template-columns:minmax(200px,1fr) minmax(250px,330px); }
+.video-viewport { grid-column:1;grid-row:2;position:relative;min-height:0;min-width:0;overflow:hidden;background:#000; }
+#playerModal .video-viewport #ytPlayer,#playerModal .video-viewport #ytPlayer iframe {
+  position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+  min-height:0!important;min-width:0!important;aspect-ratio:auto!important;border:0!important;
+}
+#playerModal .player-chrome-top {
+  grid-column:1/-1;grid-row:1;position:relative!important;inset:auto!important;
+  height:100%!important;min-width:0;padding:8px 28px!important;background:#080808!important;
+  transform:none!important;
+}
+#playerModal .player-heading { flex:1;min-width:0;gap:5px; }
+#playerModal .player-heading strong { max-width:100%;font-size:14px;font-weight:650; }
+#playerModal .player-heading small { display:block;color:#aaa;font-size:11px; }
+#playerModal .player-top-actions { flex:none;margin-left:12px; }
+#playerModal .netflix-controls {
+  grid-column:1/-1;grid-row:3;position:relative!important;inset:auto!important;height:100%!important;
+  padding:4px 28px 14px!important;background:linear-gradient(#111,#080808)!important;
+  display:grid;grid-template-rows:18px 18px 48px;transform:none!important;
+}
+.playback-status-row { display:flex;align-items:center;gap:16px;min-width:0;font-size:11px;color:#aaa; }
+#playbackStatus { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+#playerModal[data-playback="buffering"] #playbackStatus::before,
+#playerModal[data-playback="loading"] #playbackStatus::before { content:'';display:inline-block;width:8px;height:8px;margin-right:9px;border:2px solid #555;border-top-color:#e50914;border-radius:50%;animation:player-spin 1s linear infinite; }
+@keyframes player-spin { to { transform:rotate(360deg); } }
+#retryPlayback { padding:0 10px;min-height:24px;font-size:11px;margin-left:auto; }
+#playerModal .pause-status { display:none!important; }
+#playerModal .player-now-row { margin:0 20px;align-items:center;gap:20px;min-width:0;flex:1; }
+#playerModal .player-now-copy { flex:1;min-width:0; }
+#playerModal .player-now-copy>div { min-width:0; }
+#playerModal .player-now-copy strong { max-width:100%;font-size:12px; }
+#playerModal .player-now-copy small { max-width:100%;font-size:10px;color:#888; }
+.autoplay-option { display:flex;gap:7px;align-items:center;flex:none;color:#aaa;font-size:11px;cursor:pointer; }
+.autoplay-option input { accent-color:#e50914; }
+#playerModal .media-control-row { gap:14px;min-width:0; }
+#playerModal .netflix-control svg { width:28px;height:28px;fill:currentColor; }
+#playerModal .netflix-control { border-radius:4px; }
+#playerModal .netflix-control:hover { background:transparent;transform:scale(1.13); }
+#playerModal .netflix-chip { background:transparent;border:0;font-size:14px; }
+#playerModal .player-now-copy>span { display:none; }
+#playerModal .player-now-copy strong { font-weight:500; }
+#playerModal .player-now-copy small { display:none; }
+#playerModal .player-top-actions .netflix-text-btn { background:transparent;font-weight:500; }
+#playerModal .media-volume { width:76px; }
+#playerModal .media-timeline::before,#playerModal .media-progress,#playerModal .media-buffer { height:3px; }
+.player-details .autoplay-option { margin-top:20px; }
+#playerModal .media-timecode { font-size:11px;font-variant-numeric:tabular-nums; }
+#playerModal .primary-control { background:transparent;color:white; }
+#playerModal .netflix-control:focus-visible,#playerModal button:focus-visible,#playerModal a:focus-visible { outline:2px solid #fff;outline-offset:3px; }
+#playerModal .player-error { grid-column:1;grid-row:2;position:relative!important;inset:auto!important;height:100%;min-height:0; }
+.player-details { grid-column:2;grid-row:2;min-height:0;min-width:0;overflow:auto;padding:26px 22px;background:#151515;border-left:1px solid #ffffff12;scrollbar-width:thin;scrollbar-color:#555 #151515; }
+.player-details[hidden],#retryPlayback[hidden] { display:none!important; }
+.details-eyebrow { color:#e50914;font-size:10px;font-weight:800;letter-spacing:.18em; }
+.player-details h2 { margin:12px 0;font-size:24px;line-height:1.2;letter-spacing:-.03em; }
+#episodeInfoMeta { color:#aaa;font-size:11px;line-height:1.6; }
+#episodeDescription { white-space:pre-line;overflow-wrap:anywhere;font-size:12px;line-height:1.7;color:#c5c5c5;margin:18px 0; }
+.player-details h3 { margin:28px 0 12px;font-size:14px; }
+.episode-choice { display:block;width:100%;text-align:left;border:0;border-bottom:1px solid #ffffff12;background:transparent;color:#bbb;padding:14px 10px;cursor:pointer;font:inherit; }
+.episode-choice strong { display:block;font-size:12px;line-height:1.5; }
+.episode-choice small { display:block;color:#888;font-size:10px;margin-top:5px; }
+.episode-choice:hover { background:#ffffff0c; }
+.episode-choice[aria-current="true"] { background:#ffffff0c;color:white;border-left:3px solid #e50914; }
+.player-shortcuts { color:#888;font-size:10px;line-height:1.9;margin-top:24px; }
+@media(max-width:900px) {
+  #playerModal .player-chrome-top { padding:12px 16px!important;gap:10px; }
+  #playerModal .netflix-controls { padding:4px 16px 14px!important; }
+  #playerModal .media-control-row { gap:4px; }
+  #playerModal .media-volume { width:60px; }
+  #playerModal .player-top-actions #playerListBtn { display:none; }
+  #playerModal .player-screen.details-open { grid-template-columns:minmax(200px,1fr) 250px; }
+}
+@media(max-width:540px) { #playerModal .player-screen.details-open { grid-template-columns:1fr; }.player-details{grid-column:1;}.player-screen.details-open .video-viewport{visibility:hidden;}.autoplay-option{font-size:10px}#playerModal .media-control-row{gap:2px}.player-top-actions #youtubeFallback{display:none;} }
+@media(prefers-reduced-motion:reduce) { #playbackStatus::before{animation:none!important;} }
+
+/* Episode list stays inside its own scroll pane, beside the video. */
+.episode-choice { display:flex;gap:12px;align-items:flex-start;padding:14px 0; }
+.episode-choice img { flex:none;width:86px;aspect-ratio:16/9;object-fit:cover;border-radius:3px;margin-top:3px; }
+.episode-choice>span { min-width:0; }.episode-choice[aria-current="true"] { padding-left:9px; }
+.episode-progress { color:#ef7b80!important; }
+.episode-synopsis { margin:18px 0;color:#bbb;font-size:12px; }.episode-synopsis summary { cursor:pointer; }
+.playlist-scope-label { display:block;color:#888;font-size:10px;margin-bottom:8px; }
+#playlistScope { width:100%;background:#222;color:#eee;border:1px solid #555;border-radius:3px;padding:10px;font:inherit;font-size:12px; }
+#queueSummary { color:#999;font-size:10px;margin:12px 0; }

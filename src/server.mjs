@@ -196,7 +196,9 @@ export async function startServer({
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(publicDir, 'sw.js'));
   });
-  app.use(express.static(publicDir, { extensions: ['html'], maxAge: '1h' }));
+  app.use(express.static(publicDir, { extensions: ['html'], maxAge: '1h', setHeaders(res,file) {
+    if (/\.(?:html|js|css)$/.test(file)) res.setHeader('Cache-Control','no-cache');
+  } }));
   app.use((_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 
   const server = await new Promise((resolve, reject) => {

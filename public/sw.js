@@ -1,5 +1,5 @@
-const CACHE = 'unstable-watch-v4-2-0';
-const SHELL = ['/', '/styles.css', '/app.js', '/favicon.svg', '/manifest.webmanifest'];
+const CACHE = 'unstable-watch-v4-2-1';
+const SHELL = ['/', '/styles.css?v=4.2.1', '/player.css?v=4.2.1', '/app.js?v=4.2.1', '/favicon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -27,7 +27,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  if (['/app.js', '/styles.css'].includes(url.pathname)) {
+  if (['/app.js', '/styles.css', '/player.css'].includes(url.pathname)) {
     event.respondWith(fetch(request).then(response => {
       if (response.ok) caches.open(CACHE).then(cache => cache.put(request, response.clone()));
       return response;

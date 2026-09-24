@@ -15,6 +15,9 @@ const state = {
   idleTimer: null,
   upNextTimer: null,
   playerReady: false,
+  playbackStatus: 'idle',
+  playbackTimer: null,
+  seekDrag: null,
   playerRates: [1, 1.25, 1.5, 1.75, 2],
   playerRateIndex: 0,
   playerOpenToken: 0,
@@ -33,6 +36,20 @@ const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const desktopBridge = window.unstableDesktop || null;
+
+
+const playerIcons={
+ play:'<path d="M8 4v24l20-12z"/>',pause:'<path d="M8 5h6v22H8zm10 0h6v22h-6z"/>',
+ volume:'<path d="M4 12h6l7-6v20l-7-6H4z"/><path d="M21 10q7 6 0 12m4-16q11 10 0 20" fill="none" stroke="currentColor" stroke-width="2"/>',
+ muted:'<path d="M4 12h6l7-6v20l-7-6H4z"/><path d="m22 12 7 8m0-8-7 8" fill="none" stroke="currentColor" stroke-width="2"/>',
+ previous:'<path d="M6 6h3v20H6zm19 0L10 16l15 10z"/>',next:'<path d="M23 6h3v20h-3zM7 6l15 10L7 26z"/>',
+ fullscreen:'<path d="M11 5H5v6m16-6h6v6M5 21v6h6m16-6v6h-6" fill="none" stroke="currentColor" stroke-width="2.5"/>',
+ rewind:'<path d="M8 8a12 12 0 1 1-3 13M8 3v7H1" fill="none" stroke="currentColor" stroke-width="2"/><text x="9" y="21" font-size="13" font-family="Arial" font-weight="bold">10</text>',
+ forward:'<path d="M24 8a12 12 0 1 0 3 13M24 3v7h7" fill="none" stroke="currentColor" stroke-width="2"/><text x="9" y="21" font-size="13" font-family="Arial" font-weight="bold">10</text>'
+};
+function setPlayerIcon(id,name) {
+  document.getElementById(id).innerHTML='<svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">'+playerIcons[name]+'</svg>';
+}
 
 function fmtDate(iso) {
   const d = new Date(iso);
@@ -318,7 +335,7 @@ function renderCreatorSections() {
       const rail = document.createElement('div');
       rail.className = 'video-rail';
       rail.setAttribute('aria-label', creator.name + ' videos');
-      const context = { id: 'creator-' + creator.id, title: creator.name + ' · newest first', videos };
+      const context = creatorPlaylist(creator.id);
       videos.slice(0, 12).forEach(video => rail.append(videoCard(video, {context})));
       section.append(rail);
     } else {
@@ -331,8 +348,18 @@ function renderCreatorSections() {
   }
 }
 
+function chronologicalVideos(videos = []) {
+  const unique=[...new Map(videos.filter(video=>video?.id).map(video=>[video.id,video])).values()];
+  const time=video=>{const n=Date.parse(video.publishedAt);return Number.isFinite(n)?n:Number.MAX_SAFE_INTEGER;};
+  return unique.sort((a,b)=>time(a)-time(b) || a.id.localeCompare(b.id));
+}
+
+function creatorPlaylist(creatorId) {
+  return {id:'creator-'+creatorId,title:(creatorFor(creatorId)?.name || state.videos.find(v=>v.creatorId===creatorId)?.creator || 'Creator')+' · upload order',videos:chronologicalVideos(state.videos.filter(v=>v.creatorId===creatorId))};
+}
+
 function allVideosContext() {
-  return { id: 'all-order', title: 'All videos · oldest to newest', videos: state.watchOrder };
+  return { id: 'all-order', title: 'All perspectives · upload order', videos: chronologicalVideos(state.videos) };
 }
 
 function renderStoryOrder() {
@@ -344,6 +371,8 @@ function renderStoryOrder() {
     rail.appendChild(videoCard(video, { context, order: index + 1 }));
   });
   $('#playAllStart').disabled = !state.watchOrder.length;
+  $('#browseWatchOrder').disabled=!state.watchOrder.length;
+  $('#browseWatchOrder').textContent='View all '+state.watchOrder.length+' episodes';
 }
 
 const ARC_FALLBACK_RULES = [
@@ -471,7 +500,8 @@ function renderArcFolders() {
 }
 
 function arcContext(folder) {
-  return { id: `arc-${folder.key}`, title: `${folder.name} Arc`, videos: folder.videos };
+  if(folder.key==='watch-all')return allVideosContext();
+  return { id: `arc-${folder.key}`, title: `${folder.name} Arc`, videos: chronologicalVideos(folder.videos) };
 }
 
 function openArcFolder(folder) {
@@ -482,7 +512,7 @@ function openArcFolder(folder) {
   const grid = $('#arcVideoGrid');
   grid.innerHTML = '';
   const context = arcContext(folder);
-  folder.videos.forEach((video, index) => grid.appendChild(videoCard(video, { compact: true, context, order: index + 1 })));
+  context.videos.forEach((video, index) => grid.appendChild(videoCard(video, { compact: true, context, order: index + 1 })));
   $('#arcOverlay').classList.add('open');
   $('#arcOverlay').setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
@@ -617,8 +647,8 @@ function renderFeed() {
     .filter(video => isUnstableLongform(video))
     .filter((video, index, all) => all.findIndex(item => item.id === video.id) === index)
     .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-  state.watchOrder = [...state.videos].sort((a, b) => new Date(a.publishedAt) - new Date(b.publishedAt));
-  if (state.activePlaylist?.id === 'all-order') state.activePlaylist = allVideosContext();
+  state.watchOrder = chronologicalVideos(state.videos);
+  // Keep an open playback queue stable while background feed updates arrive.
   renderStats();
   renderLatest();
   renderStoryOrder();
@@ -642,7 +672,7 @@ function renderFeed() {
 
 function normalizePlaylistContext(context, video = state.currentVideo) {
   const candidate = context?.videos?.length ? context : allVideosContext();
-  if (!video || candidate.videos.some(item => item.id === video.id)) return candidate;
+  if (!video || candidate.videos.some(item => item.id === video.id)) return {...candidate,videos:chronologicalVideos(candidate.videos)};
   return allVideosContext();
 }
 
@@ -670,7 +700,7 @@ function ensureYouTubeReady() {
     let settled = false;
     const old = window.onYouTubeIframeAPIReady;
     const timer = setTimeout(() => {
-      if (!settled) reject(new Error('YouTube player API timed out'));
+      if (!settled) { settled = true; reject(new Error('YouTube player API timed out')); }
     }, 12_000);
     window.onYouTubeIframeAPIReady = () => {
       old?.();
@@ -690,11 +720,11 @@ function resetPlayerMount() {
   existing?.remove();
   const mount = document.createElement('div');
   mount.id = 'ytPlayer';
-  const screen = $('.player-screen');
-  screen.insertBefore(mount, $('#playerError'));
+  $('#videoViewport').append(mount);
 }
 
 function showPlayerError(code) {
+  setPlaybackStatus('error');
   const messages = {
     5: ['Playback failed in the embedded player.', 'This can be a browser/HTML5 playback issue. Open the video on YouTube if retrying does not work.'],
     100: ['This video is unavailable.', 'It may have been removed, made private, or changed by the uploader.'],
@@ -715,10 +745,14 @@ function renderPlayerQueue() {
   const index = Math.max(0, list.findIndex(item => item.id === state.currentVideo?.id));
   const next = index >= 0 && index + 1 < list.length ? list[index + 1] : null;
   $('#playerPosition').textContent = list.length ? `${index + 1} / ${list.length}` : '—';
-  $('#playerDockTitle').textContent = context.title;
+  $('#playerDockTitle').textContent = state.currentVideo?.title || context.title;
+  $('#playerDockTitle').title=context.title;
   $('#playerNextTitle').textContent = next ? `Next: ${shortTitle(next.title, 58)}` : 'End of this collection';
   $('#prevBtn').disabled = index <= 0;
   $('#nextBtn').disabled = index < 0 || index >= list.length - 1;
+  $('#nextBtn').title=next?'Next: '+next.title:'End of collection';
+  $('#queueSummary').textContent='Episode '+(index+1)+' of '+list.length+' · oldest to newest';
+  renderEpisodeInfo();
 }
 
 function showPlayerChrome({ pin = false } = {}) {
@@ -726,23 +760,82 @@ function showPlayerChrome({ pin = false } = {}) {
   if (!modal?.classList.contains('open')) return;
   modal.classList.add('controls-visible');
   clearTimeout(state.idleTimer);
-  if (pin || state.player?.getPlayerState?.() !== window.YT?.PlayerState?.PLAYING) return;
+  if (pin || state.seekDrag || !$('#playerDetails').hidden || state.player?.getPlayerState?.() !== window.YT?.PlayerState?.PLAYING) return;
   state.idleTimer = setTimeout(() => {
     if(state.player?.getPlayerState?.() === window.YT?.PlayerState?.PLAYING && !(modal.contains(document.activeElement) && document.activeElement.matches(':focus-visible'))) modal.classList.remove('controls-visible');
   }, 2600);
 }
 
-function updatePlayButton(playing) {
-  $('#pauseStatus').hidden = playing;
-  $('#playPause').textContent = playing ? '❚❚' : '▶';
-  $('#playPause').setAttribute('aria-label', playing ? 'Pause' : 'Play');
-  $('#playerModal').classList.toggle('is-paused', !playing);
-  showPlayerChrome({ pin: !playing });
+function renderEpisodeInfo() {
+  const video=state.currentVideo;
+  if(!video) return;
+  $('#episodeInfoTitle').textContent=video.title;
+  const date=new Date(video.publishedAt);
+  $('#episodeInfoMeta').textContent=[video.creator,Number.isNaN(date.getTime())?'':date.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}),video.durationSeconds?fmtTime(video.durationSeconds):''].filter(Boolean).join(' · ');
+  $('#episodeDescription').textContent=video.description?.trim() || 'Watch this perspective as part of the current collection. Select another episode below to continue the story.';
+  const selector=$('#playlistScope');
+  const current=state.activePlaylist;
+  selector.replaceChildren();
+  const contexts=[current,allVideosContext(),creatorPlaylist(video.creatorId)].filter((v,i,all)=>v && all.findIndex(x=>x?.id===v.id)===i);
+  contexts.forEach(context=>{const option=document.createElement('option');option.value=context.id;option.textContent=context.title;selector.append(option);});
+  selector.value=current.id;
+  const choices=$('#episodeChoices');choices.replaceChildren();
+  const progress=getProgress();
+  playlistVideos().forEach((item,index)=>{
+    const button=document.createElement('button');button.className='episode-choice';
+    button.setAttribute('aria-current',String(item.id===video.id));
+    const image=document.createElement('img');image.src=item.thumbnail || '';image.alt='';image.loading='lazy';
+    const copy=document.createElement('span');
+    const title=document.createElement('strong');title.textContent=(index+1)+'. '+item.title;
+    const meta=document.createElement('small');const date=new Date(item.publishedAt);
+    meta.textContent=[item.creator,Number.isNaN(date.getTime())?'':date.toLocaleDateString(),item.durationSeconds?fmtTime(item.durationSeconds):''].filter(Boolean).join(' · ');
+    const saved=progress[item.id];
+    if(saved?.current>0){const watched=document.createElement('small');watched.className='episode-progress';watched.textContent=saved.duration && saved.current/saved.duration>=.95?'Watched':'Resume at '+fmtTime(saved.current);copy.append(watched);}
+    copy.prepend(title,meta);button.append(image,copy);
+    button.onclick=()=>{const queue=state.activePlaylist;setEpisodePanel(false);openPlayer(item,queue);};choices.append(button);
+  });
+}
+
+function setEpisodePanel(open) {
+  $('#playerDetails').hidden=!open;$('.player-screen').classList.toggle('details-open',open);
+  $('#playerInfoToggle').setAttribute('aria-expanded',String(open));showPlayerChrome({pin:open});
+
+}
+
+function setPlaybackStatus(status) {
+  const same=status===state.playbackStatus;
+  state.playbackStatus=status;
+  const modal=$('#playerModal');modal.dataset.playback=status;
+  modal.classList.toggle('is-paused',status==='paused' || status==='blocked' || status==='ended');
+  $('#pauseStatus').hidden=status!=='paused';
+  const labels={loading:'Connecting to YouTube…',buffering:'Buffering…',playing:'',paused:'Paused · ready when you are',blocked:'Press Play to start watching',ended:'Episode finished',error:'Playback unavailable'};
+  $('#playbackStatus').textContent=labels[status] || '';
+  const playing=status==='playing';
+  setPlayerIcon('playPause',playing?'pause':'play');
+  $('#playPause').setAttribute('aria-label',playing?'Pause':'Play');
+  ['playPause','rewindBtn','forwardBtn','volumeBtn','speedBtn','ccBtn','restartEpisode'].forEach(id=>document.getElementById(id).disabled=!state.playerReady || status==='error');
+  showPlayerChrome({pin:!playing});
+  if(same) return;
+  clearTimeout(state.playbackTimer);state.playbackTimer=null;
+  $('#retryPlayback').hidden=status!=='error';
+  if(status==='loading' || status==='buffering') {
+    const token=state.playerOpenToken;
+    state.playbackTimer=setTimeout(()=>{
+      if(token!==state.playerOpenToken || !state.currentVideo) return;
+      $('#playbackStatus').textContent='Taking longer than expected. Retry or open on YouTube.';
+      $('#retryPlayback').hidden=false;
+    },12_000);
+  }
+}
+
+function retryPlayback() {
+  if(!state.currentVideo) return;
+  return openPlayer(state.currentVideo,state.activePlaylist);
 }
 
 function togglePlay() {
   if (!state.playerReady) return;
-  const playing = state.player.getPlayerState?.() === YT.PlayerState.PLAYING;
+  const playing = [1,3].includes(state.player.getPlayerState?.());
   playing ? state.player.pauseVideo() : state.player.playVideo();
 }
 
@@ -759,7 +852,14 @@ function seekFromClientX(clientX) {
   const rect = timeline.getBoundingClientRect();
   if (!rect.width) return;
   const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-  state.player.seekTo(ratio * (state.player.getDuration?.() || 0), true);
+  const seconds=ratio * (state.player.getDuration?.() || 0);
+  if(state.seekDrag) {
+    state.seekDrag.seconds=seconds;
+    $('#timelineProgress').style.width=(ratio*100)+'%';
+    $('#timelineThumb').style.left=(ratio*100)+'%';
+    $('#timecode').textContent=fmtTime(seconds)+' / '+fmtTime(state.player.getDuration?.() || 0);
+    $('#timeline').setAttribute('aria-valuenow',String(Math.round(ratio*100)));
+  } else if(seconds>=0) state.player.seekTo(seconds,true);
 }
 
 function updateCaptionButton() {
@@ -827,7 +927,7 @@ function cycleSpeed() {
 function toggleMute() {
   if (!state.playerReady) return;
   state.player.isMuted?.() ? state.player.unMute?.() : state.player.mute?.();
-  $('#volumeBtn').textContent = state.player.isMuted?.() ? '🔇' : '🔊';
+  setPlayerIcon('volumeBtn',state.player.isMuted?.()?'muted':'volume');
 }
 
 async function toggleFullscreen() {
@@ -849,11 +949,13 @@ function startProgressSaver() {
     const duration = state.player.getDuration?.() || 0;
     const loaded = state.player.getVideoLoadedFraction?.() || 0;
     const percent = duration ? Math.max(0, Math.min(100, current / duration * 100)) : 0;
+    if(!state.seekDrag) {
     $('#timelineProgress').style.width = `${percent}%`;
     $('#timelineBuffer').style.width = `${Math.max(0, Math.min(100, loaded * 100))}%`;
     $('#timelineThumb').style.left = `${percent}%`;
     $('#timecode').textContent = `${fmtTime(current)} / ${fmtTime(duration)}`;
     $('#timeline').setAttribute('aria-valuenow', String(Math.round(percent)));
+    }
     saveTick += 1;
     if (saveTick % 5 === 0) saveProgress(state.currentVideo.id, current, duration);
   }, 1000);
@@ -869,6 +971,9 @@ async function openPlayer(video, context = null) {
   state.upNextTimer = null;
   clearTimeout(state.idleTimer);
   clearInterval(state.playerTicker);
+  clearTimeout(state.playbackTimer);
+  state.seekDrag=null;
+  resetPlayerMount();
   state.currentVideo = video;
   state.activePlaylist = normalizePlaylistContext(context || state.activePlaylist, video);
 
@@ -877,7 +982,9 @@ async function openPlayer(video, context = null) {
   $('#timelineThumb').style.left = '0%';
   $('#timecode').textContent = '0:00 / 0:00';
   const modal = $('#playerModal');
-  modal.classList.add('open', 'controls-visible', 'is-paused');
+  modal.classList.add('open', 'controls-visible');
+  state.playbackStatus='idle';
+  setPlaybackStatus('loading');
   modal.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
   document.body.classList.add('player-active');
@@ -896,14 +1003,13 @@ async function openPlayer(video, context = null) {
   try {
     await ensureYouTubeReady();
     if (openToken !== state.playerOpenToken || state.currentVideo?.id !== video.id) return;
-    resetPlayerMount();
     const progress = getProgress()[video.id];
     const origin = /^https?:$/.test(location.protocol) ? location.origin : undefined;
     state.player = new YT.Player('ytPlayer', {
       host: 'https://www.youtube-nocookie.com',
       videoId: video.id,
       playerVars: {
-        autoplay: 1,
+        autoplay: 0,
         controls: 0,
         rel: 0,
         playsinline: 1,
@@ -924,20 +1030,19 @@ async function openPlayer(video, context = null) {
           state.captionApiReady = false;
           state.captionsEnabled = false;
           event.target.setVolume?.(Number($('#volumeRange').value));
-          event.target.setPlaybackRate?.(1);
+          // Let YouTube choose quality; avoid extra load/seek commands at startup.
           $('#speedBtn').textContent = '1×';
-          $('#volumeBtn').textContent = event.target.isMuted?.() ? '🔇' : '🔊';
+          setPlayerIcon('volumeBtn',event.target.isMuted?.()?'muted':'volume');
           updateCaptionButton();
-          // Start with captions off even when the viewer's YouTube preference normally enables them.
-          setTimeout(() => { if(openToken === state.playerOpenToken) setCaptionsEnabled(false, { quiet: true }); }, 250);
+          setPlaybackStatus('loading');
           event.target.playVideo();
           startProgressSaver();
         },
         onStateChange: event => {
           if (openToken !== state.playerOpenToken || state.currentVideo?.id !== video.id) return;
           clearTimeout(state.upNextTimer);
-          updatePlayButton(event.data === YT.PlayerState.PLAYING);
-          if (event.data !== YT.PlayerState.ENDED) return;
+          setPlaybackStatus(({1:'playing',2:'paused',3:'buffering',0:'ended',5:'blocked'})[event.data] || 'loading');
+          if (event.data !== YT.PlayerState.ENDED || !$('#autoplayNext').checked) return;
           const upcoming = getNextVideo();
           if (!upcoming) return;
           clearTimeout(state.upNextTimer);
@@ -949,9 +1054,10 @@ async function openPlayer(video, context = null) {
           if (openToken !== state.playerOpenToken || state.currentVideo?.id !== video.id) return;
           const modules = state.player?.getOptions?.() || [];
           state.captionApiReady = modules.includes?.('captions') || typeof state.player?.unloadModule === 'function';
-          if (!state.captionsEnabled) setCaptionsEnabled(false, { quiet: true });
-          else updateCaptionButton();
+          // API-change events are notifications, not a reason to reload caption modules.
+          updateCaptionButton();
         },
+        onAutoplayBlocked: () => { if(openToken===state.playerOpenToken) setPlaybackStatus('blocked'); },
         onError: event => { if(openToken === state.playerOpenToken) showPlayerError(event.data); }
       }
     });
@@ -963,6 +1069,7 @@ async function openPlayer(video, context = null) {
 function closePlayer() {
   if(document.fullscreenElement) void document.exitFullscreen().catch(()=>{});
   state.playerOpenToken += 1;
+  clearTimeout(state.playbackTimer);state.playbackTimer=null;state.seekDrag=null;state.playbackStatus='idle';
   if (state.playerReady && state.currentVideo) {
     saveProgress(state.currentVideo.id, state.player.getCurrentTime?.() || 0, state.player.getDuration?.() || 0);
   }
@@ -1191,6 +1298,7 @@ function wireUI() {
     if (event.target === $('#searchOverlay')) closeSearch();
   });
 
+  $('#browseWatchOrder').onclick=()=>openArcFolder({key:'watch-all',name:'Complete watch order',videos:allVideosContext().videos,creators:(state.feed?.creators || []).map(c=>c.id)});
   $('#playAllStart').onclick = () => {
     const context = allVideosContext();
     if (context.videos[0]) openPlayer(context.videos[0], context);
@@ -1207,8 +1315,17 @@ function wireUI() {
     openPlayer(folder.videos[0], context);
   };
 
+  for(const [id,icon] of Object.entries({playPause:'play',rewindBtn:'rewind',forwardBtn:'forward',volumeBtn:'volume',prevBtn:'previous',nextBtn:'next',fullscreenBtn:'fullscreen'}))setPlayerIcon(id,icon);
   $('#playerBack').onclick = closePlayer;
   $('#pauseResume').onclick = togglePlay;
+  $('#retryPlayback').onclick = retryPlayback;
+  $('#restartEpisode').onclick=()=>{if(state.playerReady) {state.player.seekTo(0,true);state.player.playVideo();}};
+  try { $('#autoplayNext').checked=localStorage.getItem('unstable-autoplay-next')!=='false'; } catch {}
+  $('#autoplayNext').onchange=()=>{clearTimeout(state.upNextTimer);try {localStorage.setItem('unstable-autoplay-next',String($('#autoplayNext').checked));} catch {}};
+  $('#playerInfoToggle').onclick=()=>{
+    setEpisodePanel($('#playerDetails').hidden);
+  };
+  $('#playlistScope').onchange=()=>{const id=$('#playlistScope').value;if(id==='all-order')state.activePlaylist=allVideosContext();else if(id==='creator-'+state.currentVideo.creatorId)state.activePlaylist=creatorPlaylist(state.currentVideo.creatorId);renderPlayerQueue();};
   $('#playerListBtn').onclick = () => toggleMyList(state.currentVideo);
   $('#prevBtn').onclick = () => {
     const previous = getPrevVideo();
@@ -1229,7 +1346,7 @@ function wireUI() {
     const volume = Number(event.target.value);
     state.player.setVolume?.(volume);
     if (volume > 0 && state.player.isMuted?.()) state.player.unMute?.();
-    $('#volumeBtn').textContent = volume === 0 || state.player.isMuted?.() ? '🔇' : '🔊';
+    setPlayerIcon('volumeBtn',volume===0 || state.player.isMuted?.()?'muted':'volume');
   };
   $('#fullscreenBtn').onclick = toggleFullscreen;
 
@@ -1240,17 +1357,24 @@ function wireUI() {
     showPlayerChrome({ pin: state.player?.getPlayerState?.() !== window.YT?.PlayerState?.PLAYING });
   });
 
-  const seekPointer = event => seekFromClientX(event.clientX);
-  $('#timeline').addEventListener('pointerdown', event => {
-    seekPointer(event);
-    $('#timeline').setPointerCapture?.(event.pointerId);
+  const timeline=$('#timeline');
+  timeline.addEventListener('pointerdown',event=>{
+    if(!state.playerReady || event.button!==0 || !(state.player.getDuration?.()>0))return;
+    event.preventDefault();state.seekDrag={pointerId:event.pointerId,seconds:0};
+    seekFromClientX(event.clientX);timeline.setPointerCapture?.(event.pointerId);showPlayerChrome({pin:true});
   });
-  $('#timeline').addEventListener('pointermove', event => {
-    if (event.buttons === 1) seekPointer(event);
+  timeline.addEventListener('pointermove',event=>{
+    if(state.seekDrag?.pointerId===event.pointerId)seekFromClientX(event.clientX);
   });
+  timeline.addEventListener('pointerup',event=>{
+    if(state.seekDrag?.pointerId!==event.pointerId)return;
+    seekFromClientX(event.clientX);const seconds=state.seekDrag.seconds;state.seekDrag=null;
+    state.player.seekTo(seconds,true);showPlayerChrome();
+  });
+  ['pointercancel','lostpointercapture'].forEach(type=>timeline.addEventListener(type,()=>{state.seekDrag=null;showPlayerChrome();}));
   $('#timeline').addEventListener('keydown', event => {
-    if (event.key === 'ArrowLeft') { event.preventDefault(); seekRelative(-5); }
-    if (event.key === 'ArrowRight') { event.preventDefault(); seekRelative(5); }
+    if (event.key === 'ArrowLeft') { event.preventDefault(); event.stopPropagation(); seekRelative(-5); }
+    if (event.key === 'ArrowRight') { event.preventDefault(); event.stopPropagation(); seekRelative(5); }
   });
 
   addEventListener('keydown', event => {
@@ -1267,6 +1391,8 @@ function wireUI() {
       return;
     }
     if ($('#playerModal').classList.contains('open')) {
+      if(event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+      if(event.key!=='Escape' && event.target.closest?.('input,select,textarea,button,a')) return;
       showPlayerChrome();
       const key = event.key.toLowerCase();
       if (event.key === 'Escape') closePlayer();

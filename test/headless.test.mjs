@@ -14,6 +14,9 @@ test('headless HTTP health, configuration, persistence and restart work without 
   let runtime;
   try {
     runtime=await startServer({host:'127.0.0.1',port:0,startServices:false});
+    for(const asset of ['/','/app.js?v=4.2.1','/styles.css?v=4.2.1','/player.css?v=4.2.1']) {
+      const response=await fetch(runtime.url+asset);assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-cache');await response.text();
+    }
     const health=await(await fetch(runtime.url+'/api/health')).json();
     assert.equal(health.serverReady,true);assert.equal(health.youtubeMode,'public-feed');assert.equal(health.discordReady,false);
     assert.equal(typeof health.uptime,'number');
